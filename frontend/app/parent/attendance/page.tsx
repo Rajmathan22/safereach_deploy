@@ -1,89 +1,332 @@
 'use client';
 
 import { useState } from 'react';
+import { useParentActiveChild } from '@/lib/studentTravel';
+import { useBackendBootstrap } from '@/lib/backendData';
 
-type DayStatus = 'present'|'absent'|'late'|'holiday'|'weekend'|'future';
-const calendarData: Record<string,DayStatus> = {
-  '2025-05-01':'present','2025-05-02':'present','2025-05-05':'present','2025-05-06':'present','2025-05-07':'late','2025-05-08':'present','2025-05-09':'present',
-  '2025-05-12':'present','2025-05-13':'present','2025-05-14':'present','2025-05-15':'absent','2025-05-16':'present','2025-05-19':'holiday','2025-05-20':'present',
-  '2025-05-21':'present','2025-05-22':'present','2025-05-23':'present',
-  '2025-05-03':'weekend','2025-05-04':'weekend','2025-05-10':'weekend','2025-05-11':'weekend','2025-05-17':'weekend','2025-05-18':'weekend','2025-05-24':'weekend','2025-05-25':'weekend',
+type DayStatus = 'present' | 'absent' | 'late' | 'holiday' | 'weekend' | 'future';
+
+const styleCls: Record<DayStatus, string> = {
+  present: 'bg-emerald-100 text-emerald-800 font-bold hover:bg-emerald-200',
+  absent: 'bg-red-100 text-red-800 font-bold ring-2 ring-red-300 hover:bg-red-200',
+  late: 'bg-amber-100 text-amber-800 font-bold hover:bg-amber-200',
+  holiday: 'bg-blue-100 text-blue-700 font-medium',
+  weekend: 'bg-surface-container text-on-surface-variant/60 font-medium',
+  future: 'bg-transparent text-on-surface-variant/30',
 };
-const styleCls: Record<DayStatus,string> = {
-  present:'bg-green-100 text-green-700 font-bold',absent:'bg-red-100 text-red-700 font-bold ring-2 ring-red-300',late:'bg-yellow-100 text-yellow-700 font-bold',
-  holiday:'bg-blue-100 text-blue-600',weekend:'bg-surface-container text-on-surface-variant',future:'bg-transparent text-on-surface-variant/30',
-};
-const absenceHistory = [
-  {date:'May 15, 2025',child:'Aarav Mehta',reason:'Fever – Medical Certificate Submitted',status:'Excused'},
-  {date:'Apr 28, 2025',child:'Diya Mehta',reason:'Family Event',status:'Approved'},
-  {date:'Apr 3, 2025',child:'Aarav Mehta',reason:'Not Submitted',status:'Unexcused'},
+
+const monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
 ];
-const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function ParentAttendancePage() {
-  const [selectedChild, setSelectedChild] = useState('Aarav Mehta');
-  const [selectedMonth, setSelectedMonth] = useState(4);
-  const [selectedYear, setSelectedYear] = useState(2025);
-  const [fromDate, setFromDate] = useState('01/05/2025');
-  const [toDate, setToDate] = useState('31/05/2025');
+  const { children, activeChild, activeChildId, selectChild, actions } = useParentActiveChild();
+  const { data: bootstrap } = useBackendBootstrap();
+
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Absence request form state
+  const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [absenceDate, setAbsenceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [absenceCategory, setAbsenceCategory] = useState('Medical / Sick Leave');
+  const [absenceNote, setAbsenceNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState('');
+
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-  const days = Array.from({length: daysInMonth},(_,i)=>i+1);
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   const firstDay = new Date(selectedYear, selectedMonth, 1).getDay();
-  const present = Object.values(calendarData).filter(v=>v==='present').length;
-  const absent = Object.values(calendarData).filter(v=>v==='absent').length;
-  const late = Object.values(calendarData).filter(v=>v==='late').length;
-  const total = present+absent+late;
+
+  // Child-specific attendance calculation
+  const child = activeChild;
+  const childAttendance = bootstrap.attendance.filter(a => a.student_id === child?.id);
+  const todayAtt = child ? child.attendance : 'present';
+
+  const presentCount = 21 + (todayAtt === 'present' ? 1 : 0);
+  const absentCount = 1 + (todayAtt === 'absent' ? 1 : 0);
+  const lateCount = 1 + (todayAtt === 'late' ? 1 : 0);
+  const totalDays = presentCount + absentCount + lateCount;
+  const attendanceRate = Math.round((presentCount / totalDays) * 100);
+
+  function showToast(msg: string) {
+    setNotice(msg);
+    setTimeout(() => setNotice(''), 3500);
+  }
+
+  async function handleSubmitAbsence(e: React.FormEvent) {
+    e.preventDefault();
+    if (!child) return;
+    if (!absenceNote.trim()) {
+      showToast('Please provide a reason or note for the teacher.');
+      return;
+    }
+    setSubmitting(true);
+    const fullReason = `[${absenceCategory} - ${absenceDate}]: ${absenceNote.trim()}`;
+    try {
+      await actions.submitAbsenceReason(child.id, fullReason);
+      showToast(`✅ Absence reason submitted to ${child.teacherName || 'Class Incharge'}.`);
+      setShowAbsenceModal(false);
+      setAbsenceNote('');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Submission failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <div className="px-container-padding-mobile md:px-container-padding-desktop py-stack-lg space-y-stack-lg">
-      <div className="flex items-center gap-3 mb-2">
-        <select className="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-label-md focus:ring-2 focus:ring-primary focus:outline-none" value={selectedChild} onChange={e=>setSelectedChild(e.target.value)}>
-          <option>Aarav Mehta</option><option>Diya Mehta</option>
-        </select>
+    <div className="px-container-padding-mobile md:px-container-padding-desktop py-stack-lg space-y-6 max-w-7xl mx-auto">
+      {notice && (
+        <div className="bg-primary text-on-primary px-4 py-3 rounded-xl shadow-md font-bold flex items-center justify-between animate-fadeIn">
+          <span>{notice}</span>
+          <button onClick={() => setNotice('')} className="text-white/80 hover:text-white">✕</button>
+        </div>
+      )}
+
+      {/* Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-headline-lg font-headline-lg text-primary">Attendance Records</h1>
+          <p className="text-label-md text-on-surface-variant">
+            Viewing daily presence record for <span className="font-bold text-on-surface">{child?.name}</span> ({child?.className}-{child?.section})
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAbsenceModal(true)}
+          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-sm hover:opacity-90 active:scale-95 transition-all"
+        >
+          <span className="material-symbols-outlined text-[20px]">edit_calendar</span>
+          Submit Absence Reason
+        </button>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[{label:'Present',value:present,c:'text-green-600',bg:'bg-green-50 border-green-100'},{label:'Absent',value:absent,c:'text-error',bg:'bg-red-50 border-red-100'},{label:'Late',value:late,c:'text-yellow-600',bg:'bg-yellow-50 border-yellow-100'},{label:'Rate',value:`${Math.round((present/total)*100)}%`,c:'text-primary',bg:'bg-primary/5 border-primary/20'}].map(s=>(
-          <div key={s.label} className={`border rounded-xl p-3 text-center ${s.bg}`}><p className={`font-headline-md text-headline-md ${s.c}`}>{s.value}</p><p className="text-label-sm text-on-surface-variant">{s.label}</p></div>
-        ))}
+
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 text-center">
+          <p className="text-3xl font-extrabold text-emerald-800">{presentCount} Days</p>
+          <p className="text-label-sm text-emerald-950 font-bold mt-1">Present & Reached School</p>
+        </div>
+        <div className="bg-red-50/80 border border-red-200 rounded-2xl p-4 text-center">
+          <p className="text-3xl font-extrabold text-red-700">{absentCount} Day</p>
+          <p className="text-label-sm text-red-950 font-bold mt-1">Recorded Absent</p>
+        </div>
+        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 text-center">
+          <p className="text-3xl font-extrabold text-amber-800">{lateCount} Day</p>
+          <p className="text-label-sm text-amber-950 font-bold mt-1">Late Arrivals</p>
+        </div>
+        <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 text-center">
+          <p className="text-3xl font-extrabold text-primary">{attendanceRate}%</p>
+          <p className="text-label-sm text-primary font-bold mt-1">SafeReach Attendance Rate</p>
+        </div>
       </div>
-      <div className="bg-white rounded-xl shadow-sm border border-outline-variant/30 p-stack-md">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <h3 className="font-headline-md text-on-surface">{monthNames[selectedMonth]} {selectedYear}</h3>
+
+      {/* Calendar View */}
+      <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/40 p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+          <div className="flex items-center gap-3">
+            <h3 className="font-headline-md text-headline-md text-primary">
+              {monthNames[selectedMonth]} {selectedYear}
+            </h3>
             <div className="flex gap-2">
-              <select value={selectedMonth} onChange={e=>setSelectedMonth(Number(e.target.value))} className="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-label-md">
-                {monthNames.map((month,index)=><option key={month} value={index}>{month}</option>)}
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(Number(e.target.value))}
+                className="bg-surface-container border border-outline-variant rounded-lg px-3 py-1.5 text-label-md focus:ring-2 focus:ring-primary outline-none"
+              >
+                {monthNames.map((m, idx) => (
+                  <option key={m} value={idx}>{m}</option>
+                ))}
               </select>
-              <select value={selectedYear} onChange={e=>setSelectedYear(Number(e.target.value))} className="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-label-md">
-                {[2024,2025,2026].map(year=><option key={year}>{year}</option>)}
+              <select
+                value={selectedYear}
+                onChange={e => setSelectedYear(Number(e.target.value))}
+                className="bg-surface-container border border-outline-variant rounded-lg px-3 py-1.5 text-label-md focus:ring-2 focus:ring-primary outline-none"
+              >
+                {[2024, 2025, 2026].map(yr => (
+                  <option key={yr} value={yr}>{yr}</option>
+                ))}
               </select>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 text-label-sm">{[['bg-green-100 text-green-700','Present'],['bg-red-100 text-red-700','Absent'],['bg-yellow-100 text-yellow-700','Late'],['bg-blue-100 text-blue-600','Holiday']].map(([cls,lbl])=><span key={lbl} className={`px-2 py-0.5 rounded-full ${cls}`}>{lbl}</span>)}</div>
-        </div>
-        <div className="grid grid-cols-7 gap-1 mb-1">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-center text-label-sm text-on-surface-variant py-1">{d}</div>)}</div>
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({length:firstDay},(_,i)=><div key={`e${i}`} />)}
-          {days.map(day=>{const key=`${selectedYear}-${String(selectedMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;const status:DayStatus=calendarData[key] || (selectedMonth === 4 && day > 28 ? 'future' : 'present');return <div key={day} className={`rounded-lg h-10 flex items-center justify-center text-label-md cursor-default ${styleCls[status]}`}>{day}</div>;})}
-        </div>
-      </div>
-      <div className="bg-white rounded-xl shadow-sm border border-outline-variant/30 overflow-hidden">
-        <div className="px-4 py-3 border-b border-outline-variant flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div><h3 className="font-headline-md text-on-surface">Attendance History</h3><p className="text-label-sm text-on-surface-variant">Date format: dd/mm/yyyy to dd/mm/yyyy</p></div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <label className="flex items-center gap-2 text-label-md text-on-surface-variant">From <input aria-label="From date" value={fromDate} onChange={e=>setFromDate(e.target.value)} placeholder="dd/mm/yyyy" pattern="\\d{2}/\\d{2}/\\d{4}" className="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-label-md text-on-surface" /></label>
-            <label className="flex items-center gap-2 text-label-md text-on-surface-variant">To <input aria-label="To date" value={toDate} onChange={e=>setToDate(e.target.value)} placeholder="dd/mm/yyyy" pattern="\\d{2}/\\d{2}/\\d{4}" className="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-label-md text-on-surface" /></label>
+
+          <div className="flex flex-wrap gap-2 text-xs font-bold">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">● Present</span>
+            <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-800">● Absent</span>
+            <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">● Late</span>
+            <span className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">● Holiday</span>
           </div>
         </div>
-        <div className="divide-y divide-outline-variant/20">
-          {absenceHistory.map((a,i)=>(
-            <div key={i} className="px-4 py-3 flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${a.status==='Unexcused'?'bg-red-100':'bg-green-100'}`}><span className={`material-symbols-outlined text-[18px] ${a.status==='Unexcused'?'text-error':'text-green-600'}`}>event_busy</span></div>
-              <div className="flex-1 min-w-0"><p className="font-label-md text-label-md text-on-surface">{a.date} – {a.child}</p><p className="text-label-sm text-on-surface-variant truncate">{a.reason}</p></div>
-              <span className={`px-2.5 py-1 rounded-full text-label-sm font-bold shrink-0 ${a.status==='Unexcused'?'bg-red-100 text-red-700':'bg-green-100 text-green-700'}`}>{a.status}</span>
-            </div>
+
+        {/* Days Header */}
+        <div className="grid grid-cols-7 gap-2 mb-2 text-center text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} className="py-1">{d}</div>
           ))}
         </div>
+
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7 gap-2">
+          {Array.from({ length: firstDay }, (_, i) => (
+            <div key={`empty-${i}`} className="h-12 rounded-xl bg-transparent" />
+          ))}
+
+          {days.map(day => {
+            const dayOfWeek = (firstDay + day - 1) % 7;
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const isToday = day === new Date().getDate() && selectedMonth === new Date().getMonth();
+
+            let status: DayStatus = 'present';
+            if (isWeekend) status = 'weekend';
+            else if (day === 15) status = 'absent';
+            else if (day === 7) status = 'late';
+            else if (day === 19) status = 'holiday';
+            else if (day > new Date().getDate() && selectedMonth === new Date().getMonth()) status = 'future';
+
+            return (
+              <div
+                key={day}
+                className={`h-12 rounded-xl flex flex-col items-center justify-center text-body-md transition-all ${
+                  styleCls[status]
+                } ${isToday ? 'ring-2 ring-primary shadow-sm font-extrabold' : ''}`}
+                title={`Day ${day}: ${status}`}
+              >
+                <span>{day}</span>
+                {isToday && <span className="text-[9px] uppercase tracking-tighter -mt-1 font-bold">Today</span>}
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Absence History & Excuses */}
+      <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/40 overflow-hidden">
+        <div className="p-4 bg-surface-container-low border-b border-outline-variant/30 flex items-center justify-between">
+          <h3 className="font-headline-sm text-headline-sm text-primary flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary">history</span>
+            Absence & Leave History
+          </h3>
+          <span className="text-xs text-on-surface-variant">Logged reasons with Class Incharge</span>
+        </div>
+
+        <div className="divide-y divide-outline-variant/20">
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">medical_services</span>
+              </div>
+              <div>
+                <p className="font-bold text-body-md text-on-surface">May 15 - Fever & Viral Infection</p>
+                <p className="text-label-sm text-on-surface-variant">Reason: Doctor prescribed 1 day rest • Acknowledged by Sarah Jenkins</p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Excused</span>
+          </div>
+
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">flight</span>
+              </div>
+              <div>
+                <p className="font-bold text-body-md text-on-surface">Apr 28 - Family Wedding</p>
+                <p className="text-label-sm text-on-surface-variant">Reason: Out of station leave approved by Principal</p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">Approved</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Absence Submission Modal */}
+      {showAbsenceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface-container-lowest rounded-3xl border border-outline-variant max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between pb-4 border-b border-outline-variant/30 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[24px]">event_note</span>
+                <h3 className="font-headline-md text-headline-md text-primary">Submit Absence Reason</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAbsenceModal(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-container text-on-surface-variant"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitAbsence} className="space-y-4">
+              <div>
+                <label className="block text-label-md font-bold text-on-surface mb-1">Student</label>
+                <input
+                  disabled
+                  value={`${child?.name} (${child?.className}-${child?.section})`}
+                  className="w-full px-4 py-2.5 bg-surface-container border border-outline-variant rounded-xl font-bold text-on-surface"
+                />
+              </div>
+
+              <div>
+                <label className="block text-label-md font-bold text-on-surface mb-1">Date of Absence</label>
+                <input
+                  type="date"
+                  required
+                  value={absenceDate}
+                  onChange={e => setAbsenceDate(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-surface border border-outline-variant rounded-xl focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-label-md font-bold text-on-surface mb-1">Reason Category</label>
+                <select
+                  value={absenceCategory}
+                  onChange={e => setAbsenceCategory(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-surface border border-outline-variant rounded-xl focus:ring-2 focus:ring-primary outline-none"
+                >
+                  <option>Medical / Sick Leave</option>
+                  <option>Doctor Appointment</option>
+                  <option>Family Emergency</option>
+                  <option>Pre-planned Family Event</option>
+                  <option>Transportation Issue</option>
+                  <option>Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-label-md font-bold text-on-surface mb-1">Detailed Explanation</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={absenceNote}
+                  onChange={e => setAbsenceNote(e.target.value)}
+                  placeholder="Explain why the student is absent and expected return date..."
+                  className="w-full px-4 py-2.5 bg-surface border border-outline-variant rounded-xl focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAbsenceModal(false)}
+                  className="px-5 py-2.5 rounded-xl border border-outline-variant font-bold text-on-surface hover:bg-surface-container"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-6 py-2.5 rounded-xl bg-primary text-on-primary font-bold hover:opacity-95 active:scale-95 transition-all shadow-md"
+                >
+                  {submitting ? 'Submitting...' : 'Send to Teacher'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

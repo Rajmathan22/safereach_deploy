@@ -3,17 +3,16 @@
 import { usePathname } from '@/src/next-navigation';
 import Link from '@/src/next-link';
 import { useState } from 'react';
-import AdminSidebar from '@/components/AdminSidebar';
+import AdminSidebar, { type AdminActiveItem } from '@/components/AdminSidebar';
 import LogoMark from '@/components/LogoMark';
 
-type SidebarItem = 'analytics' | 'students' | 'teachers' | 'messages' | 'incident' | 'reports' | 'results' | 'audit' | 'timetable';
-
-function getSidebar(p: string): SidebarItem {
+function getSidebar(p: string): AdminActiveItem {
+  if (p.includes('/access')) return 'access';
   if (p.includes('/results')) return 'results';
   if (p.includes('/incidents')) return 'incident';
   if (p.includes('/reports')) return 'reports';
   if (p.includes('/timetable')) return 'timetable';
-  if (p.includes('/account')) return 'audit';
+  if (p.includes('/account') || p.includes('/audit') || p.includes('/security')) return 'audit';
   if (p.includes('/messages')) return 'messages';
   if (p.includes('/teachers')) return 'teachers';
   if (p.includes('/students')) return 'students';

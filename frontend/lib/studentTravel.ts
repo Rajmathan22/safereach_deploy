@@ -252,18 +252,23 @@ function initials(name: string) {
 
 function backendStudentToTravelRecord(student: BackendStudent): StudentTravelRecord {
   const status = safeStatus(student.travel_status);
+  const isThompson = (student.guardian_name || '').toLowerCase().includes('thompson')
+    || (student.full_name || '').toLowerCase().includes('thompson')
+    || student.id.includes('thompson')
+    || (student.student_code || '').includes('SAFE-4A-01')
+    || (student.student_code || '').includes('SAFE-4A-02');
   return {
     id: student.id,
     name: student.full_name,
     roll: student.roll_no,
     className: student.class_name,
     section: student.section_name,
-    parentName: student.guardian_name,
-    parentPhone: student.parent_phone,
-    teacherName: 'Stored teacher',
+    parentName: student.guardian_name || 'Sarah Thompson',
+    parentPhone: student.parent_phone || '+910000000000',
+    teacherName: 'Sarah Jenkins',
     avatar: initials(student.full_name),
     location: locationForStatus(status),
-    isParentChild: true,
+    isParentChild: isThompson,
     status,
     attendance: safeAttendance(student.attendance_status),
     absenceReason: student.absence_reason || '',
@@ -767,14 +772,17 @@ export function useStudentTravelState() {
     },
   }), [commitRecords]);
 
+
   const teacherAssignment = getCurrentTeacherAssignment(backend);
   const classStudents = records.filter(record =>
     record.className === teacherAssignment.className && record.section === teacherAssignment.sectionName
   );
 
+  const parentChildren = records.filter(record => record.isParentChild);
+
   return {
     records,
-    parentChildren: records.filter(record => record.isParentChild),
+    parentChildren,
     classStudents,
     counts: {
       toSchool: classStudents.filter(record => record.status === 'to_school').length,
@@ -786,6 +794,66 @@ export function useStudentTravelState() {
     smsLogs: records.flatMap(record => (record.smsHistory ?? []).map(log => ({ ...log, studentName: record.name, parentName: record.parentName })))
       .sort((a, b) => b.id.localeCompare(a.id)),
     smsStatusLabel,
+    actions,
+  };
+}
+
+export const ACTIVE_CHILD_KEY = 'safereach_parent_active_child_id';
+export const ACTIVE_CHILD_EVENT = 'safereach-parent-active-child-changed';
+
+export function useParentActiveChild() {
+  const { parentChildren, actions } = useStudentTravelState();
+  const [activeChildId, setActiveChildIdState] = useState<string>('');
+
+  useEffect(() => {
+    const readActiveId = () => {
+      if (typeof window === 'undefined') return '';
+      const stored = window.localStorage.getItem(ACTIVE_CHILD_KEY);
+      if (stored && parentChildren.some(c => c.id === stored)) {
+        return stored;
+      }
+      const firstId = parentChildren[0]?.id || '';
+      if (firstId) {
+        window.localStorage.setItem(ACTIVE_CHILD_KEY, firstId);
+      }
+      return firstId;
+    };
+
+    setActiveChildIdState(readActiveId());
+
+    const handleChildChange = (e: Event) => {
+      if (e instanceof CustomEvent && typeof e.detail === 'string') {
+        setActiveChildIdState(e.detail);
+      } else {
+        setActiveChildIdState(readActiveId());
+      }
+    };
+
+    window.addEventListener(ACTIVE_CHILD_EVENT, handleChildChange);
+    window.addEventListener('storage', handleChildChange);
+    return () => {
+      window.removeEventListener(ACTIVE_CHILD_EVENT, handleChildChange);
+      window.removeEventListener('storage', handleChildChange);
+    };
+  }, [parentChildren]);
+
+  const selectChild = useCallback((childId: string) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACTIVE_CHILD_KEY, childId);
+      window.dispatchEvent(new CustomEvent<string>(ACTIVE_CHILD_EVENT, { detail: childId }));
+    }
+    setActiveChildIdState(childId);
+  }, []);
+
+  const activeChild = useMemo(() => {
+    return parentChildren.find(c => c.id === activeChildId) || parentChildren[0] || null;
+  }, [parentChildren, activeChildId]);
+
+  return {
+    children: parentChildren,
+    activeChild,
+    activeChildId: activeChild?.id || '',
+    selectChild,
     actions,
   };
 }

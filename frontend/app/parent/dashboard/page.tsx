@@ -1,324 +1,367 @@
 'use client';
 
+import Link from '@/src/next-link';
 import { useEffect, useState } from 'react';
-import { readDailyIds, writeDailyIds } from '@/lib/dailyActionLocks';
 import { useSafetyProtocols } from '@/lib/safetyProtocols';
-import { travelStatusClass, travelStatusIcon, travelStatusLabel, useStudentTravelState } from '@/lib/studentTravel';
-
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-
-function isOverdueTravel(status: string, updatedAt: string) {
-  if (status !== 'to_school' && status !== 'going_home') return false;
-  const timestamp = Date.parse(updatedAt);
-  return !Number.isNaN(timestamp) && Date.now() - timestamp > TWO_HOURS_MS;
-}
-
-function childCardStyle(status: string, updatedAt: string) {
-  if (status === 'absent' || isOverdueTravel(status, updatedAt)) {
-    return { card: 'border-red-200 bg-red-100', chip: 'bg-red-400 text-white' };
-  }
-  if (status === 'to_school' || status === 'going_home') {
-    return { card: 'border-amber-200 bg-amber-100', chip: 'bg-amber-300 text-amber-950' };
-  }
-  if (status === 'reached_school' || status === 'present' || status === 'reached_home') {
-    return { card: 'border-green-200 bg-green-100', chip: 'bg-green-300 text-green-900' };
-  }
-  return { card: 'border-slate-200 bg-white', chip: 'bg-slate-100 text-slate-700' };
-}
+import {
+  useParentActiveChild,
+  travelStatusClass,
+  travelStatusIcon,
+  travelStatusLabel,
+} from '@/lib/studentTravel';
 
 export default function ParentDashboardPage() {
-  const { parentChildren, actions } = useStudentTravelState();
-  const currentParentName = 'Sarah Thompson';
-  const currentParentChildIds = ['st-leo-thompson', 'st-maya-thompson'];
-  const dashboardChildren = parentChildren.filter(child =>
-    child.parentName === currentParentName || currentParentChildIds.includes(child.id)
-  );
-  const [readySentIds, setReadySentIds] = useState<string[]>([]);
-  const [reachedHomeIds, setReachedHomeIds] = useState<string[]>([]);
-  const canSendToSchool = (childStatus: string) => childStatus !== 'to_school' && childStatus !== 'going_home';
+  const { children, activeChild, activeChildId, selectChild, actions } = useParentActiveChild();
+  const [actionLoading, setActionLoading] = useState(false);
+  const [notice, setNotice] = useState('');
+
   const {
     protocols,
     loading: protocolsLoading,
-    error: protocolsError,
-    add: addProtocolRow,
     update: updateProtocol,
-    remove: removeProtocol,
     submit: submitProtocolRows,
   } = useSafetyProtocols('parent');
   const [checkedProtocolIds, setCheckedProtocolIds] = useState<string[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
-  const [newProtocol, setNewProtocol] = useState('');
-  const [notice, setNotice] = useState('');
 
   useEffect(() => {
-    setReadySentIds(readDailyIds('safereach_parent_ready_to_school'));
-    setReachedHomeIds(readDailyIds('safereach_parent_reached_home'));
-    function resetIfNewDay() {
-      const today = new Date().toISOString().slice(0, 10);
-      const storageKey = 'safereach-parent-protocol-reset-date';
-      if (window.localStorage.getItem(storageKey) !== today) {
-        setCheckedProtocolIds([]);
-        window.localStorage.setItem(storageKey, today);
-      }
-    }
-
-    resetIfNewDay();
-    const timer = window.setInterval(resetIfNewDay, 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    writeDailyIds('safereach_parent_ready_to_school', readySentIds);
-  }, [readySentIds]);
-
-  useEffect(() => {
-    writeDailyIds('safereach_parent_reached_home', reachedHomeIds);
-  }, [reachedHomeIds]);
-
-  useEffect(() => {
-    setCheckedProtocolIds(protocols.filter(protocol => protocol.checked).map(protocol => protocol.id));
+    setCheckedProtocolIds(protocols.filter(p => p.checked).map(p => p.id));
   }, [protocols]);
 
-  function beginEdit(id: string, label: string) {
-    setEditingId(id);
-    setEditText(label);
+  function showNotice(msg: string) {
+    setNotice(msg);
+    setTimeout(() => setNotice(''), 3500);
   }
 
-  async function saveEdit() {
-    if (editingId === null || editText.trim() === '') return;
+  async function handleStartTrip() {
+    if (!activeChild) return;
+    setActionLoading(true);
     try {
-      await updateProtocol(editingId, { label: editText.trim() });
-      showNotice('Safety protocol updated in backend.');
-    } catch (reason) {
-      showNotice(reason instanceof Error ? reason.message : 'Safety protocol update failed.');
+      await actions.readyToSend(activeChild.id);
+      showNotice(`🎉 Trip started! ${activeChild.name} is now Tracking to School.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Failed to start trip');
+    } finally {
+      setActionLoading(false);
     }
-    setEditingId(null);
-    setEditText('');
   }
 
-  async function submitProtocols() {
+  async function handleConfirmReachedHome() {
+    if (!activeChild) return;
+    setActionLoading(true);
     try {
-      await submitProtocolRows(checkedProtocolIds);
-      showNotice('Checked safety protocols submitted to backend.');
-    } catch (reason) {
-      showNotice(reason instanceof Error ? reason.message : 'Safety protocol submit failed.');
+      await actions.markReachedHome(activeChild.id);
+      showNotice(`✅ Safe arrival recorded! ${activeChild.name} is safely at home.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Failed to confirm arrival');
+    } finally {
+      setActionLoading(false);
     }
   }
 
-  async function addProtocol() {
-    if (!newProtocol.trim()) return;
+  async function toggleProtocol(id: string) {
+    const next = checkedProtocolIds.includes(id)
+      ? checkedProtocolIds.filter(itemId => itemId !== id)
+      : [...checkedProtocolIds, id];
+    setCheckedProtocolIds(next);
     try {
-      await addProtocolRow(newProtocol.trim());
-      setNewProtocol('');
-      showNotice('Safety protocol added to backend.');
-    } catch (reason) {
-      showNotice(reason instanceof Error ? reason.message : 'Safety protocol add failed.');
+      await submitProtocolRows(next);
+    } catch {
+      // Keep optimistic UI
     }
   }
 
-  async function deleteProtocol(id: string, label: string) {
-    if (!window.confirm(`Delete safety protocol "${label}"?`)) return;
-    try {
-      await removeProtocol(id);
-      setCheckedProtocolIds(current => current.filter(itemId => itemId !== id));
-      showNotice('Safety protocol deleted in backend.');
-    } catch (reason) {
-      showNotice(reason instanceof Error ? reason.message : 'Safety protocol delete failed.');
-    }
-  }
-
-  function showNotice(message: string) {
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 2500);
-  }
-
-  const travelTimingGroups = dashboardChildren.reduce<Array<{
-    key: string;
-    status: string;
-    location: string;
-    updatedAt: string;
-    children: typeof dashboardChildren;
-  }>>((groups, child) => {
-    const key = `${child.status}|${child.location}|${child.updatedAt}`;
-    const existing = groups.find(group => group.key === key);
-    if (existing) {
-      existing.children.push(child);
-    } else {
-      groups.push({
-        key,
-        status: child.status,
-        location: child.location,
-        updatedAt: child.updatedAt,
-        children: [child],
-      });
-    }
-    return groups;
-  }, []);
+  const child = activeChild;
 
   return (
-    <div className="px-container-padding-mobile md:px-container-padding-desktop py-stack-lg">
-      <section className="mb-stack-lg">
-        <h3 className="font-headline-lg text-headline-lg text-on-background mb-2">Welcome back, Sarah.</h3>
-        <p className="font-body-lg text-body-lg text-on-surface-variant">Your children are currently loaded from stored SafeReach records.</p>
-      </section>
-      {notice && <div className="mb-4 bg-green-50 border border-green-100 text-green-700 px-4 py-3 rounded-lg font-label-md">{notice}</div>}
-      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start">
-        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5 content-start items-start">
-          {dashboardChildren.map(child => {
-            const canConfirmHome = child.status === 'going_home' && !reachedHomeIds.includes(child.id);
-            const cardStyle = childCardStyle(child.status, child.updatedAt);
-            return (
-            <div key={child.id} className={`self-start rounded-[20px] border p-4 flex flex-col gap-3 relative overflow-hidden shadow-[0_5px_10px_rgba(15,23,42,0.18)] transition-colors ${cardStyle.card}`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-white text-primary ring-1 ring-black/5 flex items-center justify-center font-bold shadow-sm">{child.avatar}</div>
-                  <div><h4 className="font-headline-md text-[17px] font-bold text-slate-950 leading-tight">{child.name}</h4><p className="text-label-sm font-bold text-slate-500">{child.className} - Section {child.section}</p></div>
-                </div>
-                <span className={`${cardStyle.chip} px-3 py-1 rounded-full text-label-sm font-bold flex items-center gap-1 shrink-0`}>
-                  <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(child.status)}</span>{travelStatusLabel(child.status, 'parent')}
-                </span>
+    <div className="p-container-padding-mobile md:p-container-padding-desktop space-y-6 max-w-7xl mx-auto">
+      {notice && (
+        <div className="bg-primary text-on-primary px-4 py-3 rounded-xl shadow-md font-bold flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined">notifications_active</span>
+            <span>{notice}</span>
+          </div>
+          <button onClick={() => setNotice('')} className="text-white/80 hover:text-white">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      )}
+
+      {/* Multi-Child Quick Switch Bar if multiple children */}
+      {children.length > 1 && (
+        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/40 p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-headline-sm text-headline-sm text-primary flex items-center gap-2">
+              <span className="material-symbols-outlined">family_restroom</span>
+              Your Enrolled Children ({children.length})
+            </h3>
+            <span className="text-label-sm text-on-surface-variant">Tap to switch active monitor</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {children.map(c => {
+              const isSelected = c.id === activeChildId;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => selectChild(c.id)}
+                  className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm'
+                      : 'border-outline-variant bg-surface hover:bg-surface-container-low'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                      isSelected ? 'bg-primary text-on-primary' : 'bg-surface-container-highest text-primary'
+                    }`}>
+                      {c.avatar || c.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-on-surface text-body-md">{c.name}</p>
+                      <p className="text-label-sm text-on-surface-variant">{c.className} - Sec {c.section}</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 ${travelStatusClass(c.status)}`}>
+                    <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(c.status)}</span>
+                    {travelStatusLabel(c.status)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Primary Hero: Student Safety Journey for Reaching School */}
+      {child ? (
+        <div className="bg-gradient-to-br from-primary-container/20 via-surface-container-lowest to-surface-container-low rounded-3xl border border-primary/20 p-6 md:p-8 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-outline-variant/30">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-primary text-on-primary flex items-center justify-center font-extrabold text-2xl shadow-md shrink-0">
+                {child.avatar || child.name.slice(0, 2).toUpperCase()}
               </div>
-              {child.absenceReasonRequested && (
-                <div className="rounded-lg bg-error-container/40 p-3 text-label-sm text-error font-bold">
-                  Absent SMS sent. Reply with reason in Messages.
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-headline-lg font-headline-lg text-primary">{child.name}</h1>
+                  <span className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 shadow-sm ${travelStatusClass(child.status)}`}>
+                    <span className="material-symbols-outlined text-[16px]">{travelStatusIcon(child.status)}</span>
+                    {travelStatusLabel(child.status)}
+                  </span>
                 </div>
-              )}
-              <div className={`grid gap-2 ${canConfirmHome ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                <p className="text-label-md text-on-surface-variant mt-1">
+                  Roll No: <span className="font-bold text-on-surface">{child.roll}</span> • Standard: <span className="font-bold text-on-surface">{child.className}-{child.section}</span> • Incharge: <span className="font-bold text-primary">{child.teacherName}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Main Safety Reaching Action Button */}
+            <div className="flex flex-wrap items-center gap-3">
+              {child.status === 'at_home' && (
                 <button
                   type="button"
-                  disabled={readySentIds.includes(child.id) || !canSendToSchool(child.status)}
-                  onClick={async () => {
-                    try {
-                      await actions.readyToSend(child.id);
-                      setReadySentIds(current => Array.from(new Set([...current, child.id])));
-                      showNotice(`${child.name} is now Tracking to School.`);
-                    } catch (reason) {
-                      showNotice(reason instanceof Error ? reason.message : 'Ready to Send failed.');
-                    }
-                  }}
-                  className={`px-2 py-2 font-bold text-label-sm sm:text-label-md rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${readySentIds.includes(child.id) || !canSendToSchool(child.status) ? 'bg-surface-container text-on-surface-variant cursor-not-allowed' : 'bg-secondary text-on-secondary hover:opacity-90'}`}
+                  onClick={handleStartTrip}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2.5 px-6 py-3.5 bg-primary text-on-primary font-bold text-body-md rounded-2xl hover:opacity-95 active:scale-95 transition-all shadow-md"
                 >
-                  <span className="material-symbols-outlined text-[16px] sm:text-[18px]">directions_walk</span>
-                  Ready to Send
+                  <span className="material-symbols-outlined">directions_walk</span>
+                  {actionLoading ? 'Starting Trip...' : 'Start Trip to School'}
                 </button>
-                {canConfirmHome && <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await actions.markReachedHome(child.id);
-                      setReachedHomeIds(current => Array.from(new Set([...current, child.id])));
-                      showNotice(`${child.name} marked SafeReach at home.`);
-                    } catch (reason) {
-                      showNotice(reason instanceof Error ? reason.message : 'Reached Home failed.');
-                    }
-                  }}
-                  className="px-2 py-2 font-bold text-label-sm sm:text-label-md rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap bg-primary text-on-primary hover:opacity-90"
-                >
-                  <span className="material-symbols-outlined text-[16px] sm:text-[18px]">home_pin</span>
-                  Reached Home
-                </button>}
-              </div>
-            </div>
-          );
-          })}
-          {dashboardChildren.length === 0 && (
-            <div className="md:col-span-2 glass-card rounded-xl p-stack-md text-on-surface-variant">
-              No child records are assigned to this parent account.
-            </div>
-          )}
-          <section className="md:col-span-2 glass-card rounded-xl p-stack-md border-l-4 border-secondary">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="material-symbols-outlined text-secondary">schedule</span>
-              <h4 className="text-headline-md text-[18px] font-bold">Travel Timing</h4>
-            </div>
-            <div className="grid grid-cols-1 gap-3">
-              {travelTimingGroups.map(group => (
-                <div key={group.key} className="rounded-lg bg-surface-container p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-label-md font-bold text-on-background">
-                        {group.children.map(child => child.name.split(' ')[0]).join(', ')}
-                      </p>
-                      <p className="text-label-sm text-on-surface-variant">
-                        {group.location} - updated {group.updatedAt}.
-                      </p>
-                    </div>
-                    <span className={`${travelStatusClass(group.status)} w-fit px-3 py-1 rounded-full text-label-sm font-bold flex items-center gap-1`}>
-                      <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(group.status)}</span>
-                      {travelStatusLabel(group.status, 'parent')}
-                    </span>
+              )}
+
+              {child.status === 'to_school' && (
+                <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
+                  <span className="inline-block w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+                  <div>
+                    <p className="text-xs font-bold text-amber-900">In Transit to School</p>
+                    <p className="text-label-sm text-amber-700">Awaiting Teacher Attendance Check-in</p>
                   </div>
-                  {group.status === 'at_home' && (
-                    <p className="mt-2 text-label-sm text-yellow-700 font-bold flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px]">alarm</span>
-                      Send reminder alarm is automatically active for {group.children.length > 1 ? 'these children' : 'this child'}.
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {(child.status === 'reached_school' || child.status === 'present') && (
+                <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-3 rounded-2xl text-emerald-900 shadow-sm">
+                  <span className="material-symbols-outlined text-emerald-600 text-[26px]">verified</span>
+                  <div>
+                    <p className="font-bold text-body-md">Reached School Safely</p>
+                    <p className="text-label-sm text-emerald-700">Class in session • Verified by Incharge</p>
+                  </div>
+                </div>
+              )}
+
+              {child.status === 'going_home' && (
+                <button
+                  type="button"
+                  onClick={handleConfirmReachedHome}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2.5 px-6 py-3.5 bg-emerald-700 text-white font-bold text-body-md rounded-2xl hover:bg-emerald-800 active:scale-95 transition-all shadow-md"
+                >
+                  <span className="material-symbols-outlined">home_pin</span>
+                  {actionLoading ? 'Confirming...' : 'Confirm Reached Home Safely'}
+                </button>
+              )}
+
+              {child.status === 'reached_home' && (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl text-emerald-900 font-bold">
+                  <span className="material-symbols-outlined text-emerald-600">check_circle</span>
+                  <span>Safe at Home for Today</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4-Step Visual Student Reaching Timeline */}
+          <div className="mt-8">
+            <h4 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider mb-4">
+              Today's Daily Safety Reaching Timeline
+            </h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                {
+                  step: '1. Departure',
+                  title: 'Ready to School',
+                  desc: 'Trip started from home',
+                  icon: 'home',
+                  active: child.status !== 'at_home',
+                  current: child.status === 'to_school',
+                },
+                {
+                  step: '2. Transit Check',
+                  title: 'Safe Transit',
+                  desc: 'En route / Bus GPS tracking',
+                  icon: 'directions_bus',
+                  active: child.status !== 'at_home',
+                  current: child.status === 'to_school',
+                },
+                {
+                  step: '3. School Gate',
+                  title: 'Reached School',
+                  desc: 'Attendance marked Present',
+                  icon: 'school',
+                  active: ['reached_school', 'present', 'going_home', 'reached_home'].includes(child.status),
+                  current: child.status === 'reached_school' || child.status === 'present',
+                },
+                {
+                  step: '4. Departure',
+                  title: 'Reached Home',
+                  desc: 'Parent safe arrival confirmed',
+                  icon: 'home_pin',
+                  active: child.status === 'reached_home',
+                  current: child.status === 'going_home' || child.status === 'reached_home',
+                },
+              ].map(stage => (
+                <div
+                  key={stage.step}
+                  className={`p-4 rounded-2xl border transition-all ${
+                    stage.current
+                      ? 'bg-primary/10 border-primary shadow-sm'
+                      : stage.active
+                      ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                      : 'bg-surface border-outline-variant/50 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold uppercase tracking-wider opacity-75">{stage.step}</span>
+                    <span className={`material-symbols-outlined text-[20px] ${
+                      stage.active ? 'text-emerald-700' : 'text-on-surface-variant'
+                    }`}>{stage.icon}</span>
+                  </div>
+                  <p className="font-bold text-body-md text-on-surface">{stage.title}</p>
+                  <p className="text-label-sm text-on-surface-variant mt-0.5">{stage.desc}</p>
                 </div>
               ))}
-            </div>
-          </section>
-          <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="hidden glass-card rounded-xl p-stack-md">
-              <div className="flex items-center justify-between mb-4"><h4 className="text-headline-md text-[18px] font-bold">Billing &amp; Fees</h4><span className="material-symbols-outlined text-primary">payments</span></div>
-              <div className="space-y-3"><div className="flex justify-between items-center"><span className="text-label-md text-on-surface-variant">Lunch Balance</span><span className="font-bold text-on-background">$42.50</span></div><div className="flex justify-between items-center"><span className="text-label-md text-on-surface-variant">Field Trip: Zoo</span><span className="font-bold text-error">Unpaid</span></div></div>
-              <button className="w-full mt-4 py-2 bg-primary text-white font-bold rounded-lg text-label-md active:scale-95 transition-transform">Add Funds</button>
             </div>
           </div>
         </div>
-        <div className="lg:col-span-4 space-y-6">
-          <div className="glass-card rounded-xl p-stack-md border-l-4 border-primary">
-            <div className="flex items-center gap-2 mb-4"><span className="material-symbols-outlined text-primary">verified_user</span><h4 className="text-headline-md text-[18px] font-bold">Safety Protocols</h4></div>
-            {protocolsLoading && <p className="text-label-md text-on-surface-variant">Loading safety protocols from backend...</p>}
-            {protocolsError && <p className="rounded-lg border border-error/30 bg-error-container/30 p-3 text-label-md font-bold text-error">{protocolsError}</p>}
-            <div className="space-y-3">
-              {protocols.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 p-2 bg-surface-container rounded-lg">
-                  <input
-                    type="checkbox"
-                    checked={checkedProtocolIds.includes(item.id)}
-                    onChange={async e => {
-                      setCheckedProtocolIds(current => e.target.checked ? [...current, item.id] : current.filter(itemId => itemId !== item.id));
-                      try {
-                        await updateProtocol(item.id, { checked: e.target.checked });
-                      } catch (reason) {
-                        showNotice(reason instanceof Error ? reason.message : 'Safety protocol check failed.');
-                      }
-                    }}
-                    className="w-5 h-5 rounded text-primary"
-                  />
-                  <span className={`text-label-md text-on-background flex-1 ${item.submitted ? 'line-through text-on-surface-variant' : ''}`}>{item.label}</span>
-                  <button onClick={() => beginEdit(item.id, item.label)} className="p-1 rounded hover:bg-primary/10 text-primary" title="Edit protocol"><span className="material-symbols-outlined text-[18px]">edit</span></button>
-                  <button onClick={() => deleteProtocol(item.id, item.label)} className="p-1 rounded hover:bg-error-container text-error" title="Delete protocol"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-                </div>
-              ))}
-            </div>
-            {editingId !== null && (
-              <div className="mt-4 flex gap-2">
-                <input className="flex-1 bg-white border border-outline-variant rounded-lg px-3 py-2 text-label-md" value={editText} onChange={e => setEditText(e.target.value)} />
-                <button onClick={saveEdit} className="px-3 py-2 bg-primary text-on-primary rounded-lg font-bold">Save</button>
-              </div>
-            )}
-            <div className="mt-4 flex gap-2">
-              <input className="flex-1 bg-white border border-outline-variant rounded-lg px-3 py-2 text-label-md" value={newProtocol} onChange={e => setNewProtocol(e.target.value)} placeholder="Add new safety protocol" />
-              <button onClick={addProtocol} className="px-3 py-2 bg-secondary text-on-secondary rounded-lg font-bold">Add</button>
-            </div>
-            <button onClick={submitProtocols} className="mt-4 w-full py-2 bg-primary text-on-primary rounded-lg font-bold">Submit Checked Protocols</button>
+      ) : (
+        <div className="bg-surface-container-lowest p-8 rounded-2xl text-center border border-outline-variant">
+          <p className="text-on-surface-variant">No child profile currently selected.</p>
+        </div>
+      )}
+
+      {/* Quick Navigation Cards: Attendance, Marks, Timetable, Messages */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Link
+          href="/parent/attendance"
+          className="p-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/40 hover:border-primary hover:shadow-md transition-all group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-[24px]">calendar_month</span>
           </div>
-          <div className="glass-card rounded-xl p-stack-md">
-            <h4 className="text-headline-md text-[18px] font-bold mb-4">Notification Feed</h4>
-            <div className="space-y-4">
-              {[
-                { bg: 'bg-primary/10', icon: 'school', c: 'text-primary', title: 'Class Update', msg: 'Maya is marked present for Period 1.', time: '8:42 AM' },
-                { bg: 'bg-error/10', icon: 'report', c: 'text-error', title: 'Security Alert', msg: 'Scheduled drill at Main Campus at 11:00 AM.', time: '7:30 AM' },
-                { bg: 'bg-secondary/10', icon: 'description', c: 'text-secondary', title: 'Result Ready', msg: 'Term result is available in Results.', time: 'Yesterday' },
-              ].map((n, i) => (
-                <div key={i} className="flex gap-3"><div className={`w-8 h-8 ${n.bg} rounded-full flex items-center justify-center flex-shrink-0`}><span className={`material-symbols-outlined ${n.c} text-[18px]`}>{n.icon}</span></div><div><p className="text-label-md font-bold">{n.title}</p><p className="text-label-sm text-on-surface-variant">{n.msg}</p><p className="text-[10px] text-outline mt-1 uppercase tracking-widest">{n.time}</p></div></div>
-              ))}
-            </div>
-            <button onClick={() => showNotice('Full notification history is displayed in Messages and Attendance pages.')} className="w-full mt-6 py-2 text-primary font-bold text-label-sm border border-primary/20 rounded-lg hover:bg-primary/5 transition-colors">View All History</button>
+          <h3 className="font-bold text-headline-sm text-primary mb-1">Attendance Record</h3>
+          <p className="text-label-sm text-on-surface-variant">View monthly presence calendar & submit absence reasons</p>
+        </Link>
+
+        <Link
+          href="/parent/reports"
+          className="p-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/40 hover:border-primary hover:shadow-md transition-all group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-secondary/10 text-secondary flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-[24px]">workspace_premium</span>
           </div>
+          <h3 className="font-bold text-headline-sm text-secondary mb-1">Academic Marks</h3>
+          <p className="text-label-sm text-on-surface-variant">View quarterly exam results, internal scores & performance card</p>
+        </Link>
+
+        <Link
+          href="/parent/timetable"
+          className="p-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/40 hover:border-primary hover:shadow-md transition-all group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-tertiary/10 text-tertiary flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-[24px]">schedule</span>
+          </div>
+          <h3 className="font-bold text-headline-sm text-tertiary mb-1">Class Timetable</h3>
+          <p className="text-label-sm text-on-surface-variant">Daily periods, subjects, interval & lunch bell schedule</p>
+        </Link>
+
+        <Link
+          href="/parent/messages"
+          className="p-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/40 hover:border-primary hover:shadow-md transition-all group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-[24px]">forum</span>
+          </div>
+          <h3 className="font-bold text-headline-sm text-indigo-900 mb-1">Teacher Chat</h3>
+          <p className="text-label-sm text-on-surface-variant">Direct channel with Class Incharge {child?.teacherName || 'Sarah Jenkins'}</p>
+        </Link>
+      </div>
+
+      {/* Safety Protocols & Checklist Section */}
+      <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/40 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-headline-md text-headline-md text-primary flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">security</span>
+              Daily Safety Protocol Checklist
+            </h3>
+            <p className="text-label-sm text-on-surface-variant">Verify morning departure preparations for student safety</p>
+          </div>
+          <span className="text-xs bg-primary/10 text-primary font-bold px-3 py-1 rounded-full">
+            {checkedProtocolIds.length}/{protocols.length} Completed
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {protocols.map(p => {
+            const isChecked = checkedProtocolIds.includes(p.id);
+            return (
+              <label
+                key={p.id}
+                className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  isChecked
+                    ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950 font-bold'
+                    : 'bg-surface border-outline-variant/50 hover:bg-surface-container-low'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleProtocol(p.id)}
+                  className="w-5 h-5 rounded text-primary focus:ring-primary accent-primary"
+                />
+                <span className="text-body-md">{p.label}</span>
+              </label>
+            );
+          })}
         </div>
       </div>
     </div>

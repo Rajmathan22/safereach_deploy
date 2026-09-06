@@ -11,7 +11,7 @@
     <img alt="Vite" src="https://img.shields.io/badge/Vite-6-646CFF?style=for-the-badge&logo=vite&logoColor=white" />
     <img alt="React" src="https://img.shields.io/badge/React-18.3-149ECA?style=for-the-badge&logo=react&logoColor=white" />
     <img alt="Tailwind" src="https://img.shields.io/badge/Tailwind-CSS-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white" />
-    <img alt="Backend" src="https://img.shields.io/badge/Backend-Flask%20%2B%20PostgreSQL%20%2B%20MongoDB-00A77F?style=for-the-badge" />
+    <img alt="Backend" src="https://img.shields.io/badge/Backend-PHP%208%20%2B%20MySQL-777BB4?style=for-the-badge&logo=php&logoColor=white" />
   </p>
 
   <p>
@@ -26,8 +26,6 @@
     <a href="#er-diagram">ER Diagram</a>
     <span> | </span>
     <a href="#data-flow">Data Flow</a>
-    <span> | </span>
-    <a href="#google-sheets-db-plan">Google Sheets DB</a>
     <span> | </span>
     <a href="#visual-style">Visual Style</a>
   </p>
@@ -45,31 +43,55 @@ SafeReach is designed for real-world school safety operations:
 - Teacher manages assigned class students, attendance, SMS status updates, and class messages.
 - Parent monitors children, attendance, travel status, messages, and reports.
 
-The current codebase contains the SafeReach frontend plus an initial Flask/Socket.IO backend foundation. DB-1, DB-2, MongoDB DB-3, Google Sheets export, Twilio test SMS, deployment config, and CI scaffolding are started; production authentication, full write APIs, and final cloud secret setup still need completion.
+The codebase contains the SafeReach frontend connected to a fast, unified PHP 8 + MySQL backend with complete support for student travel lifecycles, attendance records, parent-teacher messaging, academic results, and safety protocols.
 
 ## Quick Start
 
+### Option A: Docker Deployment (Recommended for AWS EC2 & Local Production)
+
+Run the entire application stack (Frontend, PHP Backend, MySQL 8.0, phpMyAdmin) in one command:
+
+```bash
+# 1. Copy environment configuration
+cp .env.docker.example .env
+
+# 2. Build and start all services in the background
+docker compose up -d --build
+```
+
+Access the services:
+- **SafeReach Web App**: `http://localhost` or `http://<YOUR_EC2_PUBLIC_IP>` (also available on port `3000`)
+- **Direct Backend API**: `http://localhost:5000/api/v1/bootstrap`
+- **phpMyAdmin**: `http://localhost:8085` (User: `root`, Password: `rootpassword`)
+
+📖 **Complete AWS EC2 Deployment Guide**: [doc/AWS_EC2_DOCKER_DEPLOYMENT.md](doc/AWS_EC2_DOCKER_DEPLOYMENT.md)
+
+---
+
+### Option B: Local Development
+
 ```powershell
-cd E:\Projects\Live\SafeReach\frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-```text
-http://localhost:3000
-```
+---
 
-Production build:
+## 🔐 Demo Login Credentials
 
-```powershell
-cd E:\Projects\Live\SafeReach\frontend
-npm run build
-npm start
-```
+The MySQL database automatically seeds full datasets with test credentials for each role:
 
-The frontend is now a React/Vite single-page app. Vite builds static files into `frontend/dist`, and Docker/Kubernetes serve those files through Nginx.
+| Role | Email | Password | Access Portal |
+| :--- | :--- | :--- | :--- |
+| **👑 Main Admin** | `mainadmin@demo.safereach.edu` | `MainAdmin@2025` | `/login/main-admin` |
+| **🏫 School Admin** | `admin@demo.safereach.edu` | `Admin@2025` | `/login/admin` |
+| **👩‍🏫 Class Incharge** | `teacher@demo.safereach.edu` | `Teacher@2025` | `/login/teacher` |
+| **👨‍🏫 Assistant Incharge**| `james.anderson@safereach.school` | `Teacher@2025` | `/login/teacher` |
+| **👨‍👩‍👦 Parent** | `parent@demo.safereach.edu` | `Parent@2025` | `/login/parent` |
+
 
 ## Project Structure
 

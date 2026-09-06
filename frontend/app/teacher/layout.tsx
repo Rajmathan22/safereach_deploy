@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { usePathname } from '@/src/next-navigation';
 import Link from '@/src/next-link';
@@ -8,22 +8,21 @@ import RoleBootstrapLoader from '@/components/RoleBootstrapLoader';
 
 type ActiveItem = 'dashboard' | 'students' | 'attendance' | 'messages' | 'reports' | 'results' | 'timetable';
 
-const itemMap: Record<string, ActiveItem> = {
-  '/teacher/dashboard': 'dashboard',
-  '/teacher/students': 'students',
-  '/teacher/attendance': 'attendance',
-  '/teacher/messages': 'messages',
-  '/teacher/reports': 'reports',
-  '/teacher/results': 'results',
-  '/teacher/results/edit': 'results',
-  '/teacher/timetable': 'timetable',
-  '/teacher/notifications': 'messages',
-};
+function getTeacherSidebar(p: string): ActiveItem {
+  if (p.includes('/students')) return 'students';
+  if (p.includes('/attendance')) return 'attendance';
+  if (p.includes('/timetable')) return 'timetable';
+  if (p.includes('/results')) return 'results';
+  if (p.includes('/messages') || p.includes('/notifications')) return 'messages';
+  if (p.includes('/reports')) return 'reports';
+  return 'dashboard';
+}
 
 const titleMap: Record<string, { title: string; sub: string }> = {
-  '/teacher/dashboard': { title: 'Sarah Jenkins', sub: 'Class 4-B Supervisor Â· Academic Year 2024â€“25' },
+  '/teacher/dashboard': { title: 'Sarah Jenkins', sub: 'Class 4-B Supervisor · Academic Year 2024–25' },
   '/teacher/students': { title: 'My Students', sub: 'Student records and live tracking status' },
   '/teacher/students/add': { title: 'Add Student', sub: 'Create a new assigned class student record' },
+  '/teacher/students/edit': { title: 'Edit Student', sub: 'Update assigned class student details' },
   '/teacher/attendance': { title: 'Attendance', sub: 'Mark and track daily attendance' },
   '/teacher/messages': { title: 'Messages', sub: 'Communicate with parents and staff' },
   '/teacher/reports': { title: 'Reports', sub: 'File incidents and view class reports' },
@@ -40,7 +39,7 @@ const titleMap: Record<string, { title: string; sub: string }> = {
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '';
   const [menuOpen, setMenuOpen] = useState(false);
-  const activeItem: ActiveItem = itemMap[pathname] ?? 'dashboard';
+  const activeItem: ActiveItem = getTeacherSidebar(pathname);
   const { title, sub } = titleMap[pathname] ?? { title: 'Teacher Portal', sub: '' };
 
   return (
@@ -53,8 +52,8 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           <TeacherSidebar activeItem={activeItem} className="flex" onNavigate={() => setMenuOpen(false)} />
         </div>
       )}
-      <div className="md:ml-60 flex flex-col min-h-[calc(100vh-64px)] min-w-0">
-        <header className="fixed top-0 left-0 right-0 md:left-60 z-30 flex justify-between items-center h-16 px-container-padding-mobile md:px-container-padding-desktop bg-surface border-b border-outline-variant/30 shadow-sm shrink-0">
+      <div className="md:ml-64 flex flex-col min-h-[calc(100vh-64px)] min-w-0">
+        <header className="fixed top-0 left-0 right-0 md:left-64 z-30 flex justify-between items-center h-16 px-container-padding-mobile md:px-container-padding-desktop bg-surface border-b border-outline-variant/30 shadow-sm shrink-0">
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => setMenuOpen(open => !open)} className="md:hidden text-on-surface-variant p-2 -ml-2 rounded-lg hover:bg-surface-container" aria-label="Toggle navigation menu">
               <span className="material-symbols-outlined">menu</span>

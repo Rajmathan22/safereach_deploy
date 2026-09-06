@@ -1,127 +1,79 @@
-# SafeReach Backend
+# SafeReach PHP + MySQL Backend
 
-Flask backend foundation for SafeReach. This backend is designed to support the existing Next.js frontend through WebSocket-first realtime events plus minimal HTTP fallback endpoints for health and bootstrap checks.
+Production-ready PHP 8 REST API for SafeReach, connected to a unified MySQL relational database.
 
-## Setup
+---
 
-```powershell
-cd E:\Projects\Live\SafeReach\backend
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-copy .env.example .env
-```
+## Architecture Overview
 
-Fill `backend\.env` with the real values. Do not commit `.env`.
+- **Language**: PHP 8.2+ (Pure Object-Oriented, PSR-compliant)
+- **Database**: MySQL 8.0 / MariaDB (`safereach_db`)
+- **Web Server**: Apache with `mod_rewrite` or Nginx + PHP-FPM
+- **Authentication**: JWT (JSON Web Tokens) with Scrypt/Bcrypt hashing
+- **Port**: `5000`
 
-Optional venv setup:
+---
 
-```powershell
-python -m venv .venv
-$env:USE_BACKEND_VENV="true"
-.\scripts\run-dev.ps1 -Install
-```
+## Quick Start
 
-## Run
+### 1. Database Setup
 
-Recommended local Windows run:
+Create the MySQL database and import the schema and seeds:
 
 ```powershell
-.\scripts\run-dev.ps1
+# In MySQL shell or phpMyAdmin:
+CREATE DATABASE safereach_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+# Or run the PHP migration script:
+php backend/database/migrate.php
 ```
 
-This starts with normal `python`, skips dependency reinstall for faster startup, and automatically stops any old process already using port `5000`.
+### 2. Local Run (Built-in PHP Server)
 
-Install or reinstall dependencies only when needed:
+To quickly run the backend locally without Apache:
 
 ```powershell
-.\scripts\run-dev.ps1 -Install
+cd backend
+php -S 0.0.0.0:5000 -t public
 ```
 
-Manual run:
+> **Backend URL**: [http://localhost:5000](http://localhost:5000)  
+> **Health Check**: [http://localhost:5000/health](http://localhost:5000/health)
+
+---
+
+## Running with Docker Compose
+
+To launch MySQL 8.0, PHP Backend, and React Frontend in a single command:
 
 ```powershell
-python scripts/migrate.py all
-python scripts/seed.py
-python scripts/mirror_db1_to_db2.py
-python run.py
+docker compose up --build
 ```
 
-`python run.py` keeps Flask debug mode enabled in development but disables the Windows watchdog reloader by default. This avoids repeated reloads from unrelated files inside Python `site-packages`. To enable auto-reload intentionally:
+- **Frontend**: [http://localhost:3000](http://localhost:3000)
+- **Backend API**: [http://localhost:5000](http://localhost:5000)
+- **phpMyAdmin**: [http://localhost:8085](http://localhost:8085)
+- **MySQL**: `localhost:3306`
 
-```powershell
-$env:SAFE_REACH_RELOAD="true"
-python run.py
-```
+---
 
-If you run the backend with global Python and see a `RequestsDependencyWarning`, repair that Python environment with:
+## Endpoints Reference
 
-```powershell
-python -m pip install --upgrade --force-reinstall requests==2.32.5 urllib3==2.5.0 charset-normalizer==3.4.4 chardet==5.2.0
-```
-
-Backend URL:
-
-```text
-http://localhost:5000
-ws://localhost:5000/socket.io/
-```
-
-## Connection Checks
-
-```powershell
-python scripts/test_connections.py
-```
-
-Expected local checks:
-
-- Supabase DB-1 and DB-2 connect.
-- Redis / Upstash connects.
-- Google Sheets is reachable when the service account has access.
-- Twilio account lookup works when credentials are valid.
-- HTTP `/health`, `/api/v1/bootstrap`, and `/api/v1/auth/login` return `200`.
-
-For MongoDB Atlas, add your current public IP in Atlas Network Access. If Python reports `TLSV1_ALERT_INTERNAL_ERROR` or `ServerSelectionTimeoutError` while the URI is correct, confirm the IP allowlist first, then prefer Python 3.11+ if the local Python/OpenSSL build is old.
-
-## WebSocket Events
-
-Incoming events:
-
-- `auth.login`
-- `data.bootstrap`
-- `student.ready_to_school`
-- `attendance.submit`
-- `travel.go_out`
-- `parent.reached_home`
-- `timetable.break.move`
-
-Outgoing events:
-
-- `safe.connected`
-- `auth.login.success`
-- `data.bootstrap.success`
-- `student.status.changed`
-- `attendance.marked`
-- `timetable.updated`
-- `safe.error`
-
-## Database Plan
-
-- DB-1: editable Supabase/PostgreSQL operational store.
-- DB-2: protected Supabase/PostgreSQL mirror of the DB-1 table structure. Inserts are allowed for backup/sync, while update/delete operations are blocked by DB-2 triggers.
-- DB-3: MongoDB realtime/event/log store, configured by `MONGODB_URI`.
-- Redis: cache/session/rate-limit/queue store, configured by `REDIS_URL` or Upstash REST variables.
-
-## Google Sheets Schema Export
-
-```powershell
-python scripts/export_google_sheet_schema.py
-python scripts/export_google_sheet_data.py
-```
-
-This updates:
-
-- `sheet-1` and `sheet-1.x` DB-1 tables
-- `sheet-2` and `sheet-2.x` DB-2 mirror tables
-- `sheet-3` and `sheet-3.x` DB-3 realtime collections
-
-with table names, keys, and attributes.
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | Server health check |
+| `GET` | `/api/v1/bootstrap` | Master school dataset (classes, teachers, students, reports) |
+| `POST` | `/api/v1/auth/login` | User login (returns JWT token & role) |
+| `GET/PATCH` | `/api/v1/school-settings` | Get / update school profile & operational hours |
+| `POST` | `/api/v1/student-travel/:id/ready-to-school` | Parent starts school trip tracking |
+| `POST` | `/api/v1/student-travel/:id/reached-home` | Parent confirms safe return home |
+| `POST` | `/api/v1/student-travel/:id/attendance` | Teacher records morning attendance |
+| `POST` | `/api/v1/student-travel/go-out` | Batch mark students departing school |
+| `PATCH` | `/api/v1/students/:id/sms-enabled` | Toggle automated parent SMS alerts |
+| `GET/POST` | `/api/v1/messages` | Parent-teacher message history & chat |
+| `POST` | `/api/v1/messages/absence-reason` | Parent submits absence explanation |
+| `POST` | `/api/v1/attendance/absence-notifications` | Trigger absence alerts to parents |
+| `GET/POST` | `/api/v1/academic-results/...` | Configure exams and submit marks |
+| `GET/POST/PATCH/DELETE` | `/api/v1/safety-protocols` | Daily safety checklist items |
+| `GET/PUT` | `/api/v1/industry-menu-access` | School feature permissions |
+| `GET` | `/api/v1/integrations/status` | System diagnostics & status |

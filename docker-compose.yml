@@ -1,35 +1,99 @@
 services:
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+  mysql:
+    image: mysql:8.0
+    container_name: safereach_mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_DATABASE:-safereach_db}
+      MYSQL_USER: ${DB_USERNAME:-safereach_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-safereach_password}
     ports:
-      - "6379:6379"
+      - "3306:3306"
     volumes:
-      - safereach_redis_data:/data
+      - safereach_mysql_data:/var/lib/mysql
+      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./backend/database/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - safereach_net
 
   backend:
     build:
       context: ./backend
-    env_file:
-      - ./backend/.env
+    container_name: safereach_backend
+    restart: unless-stopped
     environment:
-      SAFE_REACH_ENV: production
-      REDIS_URL: redis://redis:6379/0
-      FRONTEND_ORIGIN: http://localhost:3000
+      SAFE_REACH_ENV: ${SAFE_REACH_ENV:-production}
+      PORT: 5000
+      SECRET_KEY: ${SECRET_KEY:-safereach-super-secret-key-2026}
+      JWT_SECRET: ${JWT_SECRET:-safereach-jwt-secret-key-2026}
+      JWT_ACCESS_MINUTES: 60
+      JWT_REFRESH_DAYS: 14
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-safereach_db}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      FRONTEND_ORIGIN: "*"
+      FRONTEND_ORIGINS: "*"
+      SMS_TEST_MODE: ${SMS_TEST_MODE:-true}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_PHONE: ${TWILIO_FROM_PHONE:-}
+      TWILIO_TEST_TO_PHONE: ${TWILIO_TEST_TO_PHONE:-+910000000000}
     ports:
       - "5000:5000"
     depends_on:
-      - redis
+      mysql:
+        condition: service_healthy
+    networks:
+      - safereach_net
 
   frontend:
     build:
       context: ./frontend
-    environment:
-      VITE_SAFEREACH_API_URL: http://localhost:5000/api/v1
+      args:
+        VITE_SAFEREACH_API_URL: /api/v1
+    container_name: safereach_frontend
+    restart: unless-stopped
     ports:
+      - "80:80"
       - "3000:80"
     depends_on:
       - backend
+    networks:
+      - safereach_net
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: safereach_phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8085:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      UPLOAD_LIMIT: 64M
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - safereach_net
 
 volumes:
-  safereach_redis_data:
+  safereach_mysql_data:
+    driver: local
+
+networks:
+  safereach_net:
+    driver: bridge
+

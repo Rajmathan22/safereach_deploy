@@ -1,267 +1,331 @@
-﻿'use client';
+'use client';
 
 import Link from '@/src/next-link';
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from '@/src/next-navigation';
 import LoadingRing from '@/components/LoadingRing';
 import { apiBaseUrl } from '@/lib/runtimeConfig';
-import { BackendStudent, useBackendBootstrap } from '@/lib/backendData';
+import { useBackendBootstrap } from '@/lib/backendData';
+import { getCurrentTeacherAssignment } from '@/lib/teacherAssignment';
 
-type TeacherStudent = {
+type StudentEditForm = {
   name: string;
-  sub: string;
-  id: string;
-  grade: string;
-  status: string;
-  stCls: string;
-  guardian: string;
-  gSub: string;
-  activity: string;
-  img: string;
-  alert?: boolean;
-  parentSmsEnabled?: boolean;
-  studentCode?: string;
-};
-
-type StudentFormState = {
-  name: string;
+  rollNo: string;
   guardian: string;
   phone: string;
+  email: string;
   note: string;
-  status: 'At School' | 'In Transit' | 'Missing Scan' | 'Teacher Updated';
+  gender: string;
   parentSmsEnabled: boolean;
 };
 
-const STORAGE_KEY = 'safereach_teacher_students_grade_4b';
-const assignedClass = 'Grade 4-B';
-const fallbackImage = 'https://lh3.googleusercontent.com/aida-public/AB6AXuAWO8HpwwBhmeoajB7xWCMFKNJe3sw2BzJjZseSxmUMujJcYruCpH-zH5un-iKCmQ-Ys0Vgs3FqNTMYzOqsICx5AonWuC-QkildK8bDQ6NnDXJA1EKLuX6P4rjcRkY6ATnb8VQapagNpTBA8gIC2g4gwKfxil7G9-ynMmGALAh43c10wCR9D985t1MvUMfAHeZyNrFZanObrllIiGCBVFRDBYOZ2aVLOqYCu4Gc2SgEPOrv4WvLxL1s_d_60yhwdOBVu-uXPY7Csh7G';
-
-const teacherStudentSeed: TeacherStudent[] = [
-  { name: 'Liam Sanders', sub: 'Emergency: Severe Nut Allergy', id: '#STU-2024-001', grade: assignedClass, status: 'At School', stCls: 'bg-secondary-container/10 text-secondary border-secondary/20', guardian: '+1 (555) 012-3456', gSub: 'Mother: Sarah S.', activity: '08:15 AM - Scanned Gate 2', img: fallbackImage },
-  { name: 'Emma Wilson', sub: 'Bus Route: Blue-04', id: '#STU-2024-042', grade: assignedClass, status: 'At School', stCls: 'bg-secondary-container/10 text-secondary border-secondary/20', guardian: '+1 (555) 019-8765', gSub: 'Father: David W.', activity: '08:42 AM - Boarded Bus', img: fallbackImage },
-  { name: 'Noah Miller', sub: 'Unscheduled Absence', id: '#STU-2024-118', grade: assignedClass, status: 'Missing Scan', stCls: 'bg-error-container/20 text-error border-error/20', guardian: '+1 (555) 021-4433', gSub: 'Mother: Elena M.', activity: '08:30 AM - Expected Scan Missed', img: fallbackImage, alert: true },
-];
-
-const emptyForm: StudentFormState = {
+const emptyForm: StudentEditForm = {
   name: '',
+  rollNo: '',
   guardian: '',
   phone: '',
+  email: '',
   note: '',
-  status: 'At School',
+  gender: 'Male',
   parentSmsEnabled: true,
 };
-
-function statusClass(status: StudentFormState['status']) {
-  if (status === 'Missing Scan') return 'bg-error-container/20 text-error border-error/20';
-  if (status === 'In Transit') return 'bg-blue-100 text-blue-700 border-blue-200';
-  if (status === 'Teacher Updated') return 'bg-primary/10 text-primary border-primary/20';
-  return 'bg-secondary-container/10 text-secondary border-secondary/20';
-}
-
-function readStudents() {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '[]') as TeacherStudent[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : teacherStudentSeed;
-  } catch {
-    return teacherStudentSeed;
-  }
-}
-
-function formFromStudent(student: TeacherStudent): StudentFormState {
-  return {
-    name: student.name,
-    guardian: student.gSub.replace(/^Guardian:\s*/, '').replace(/^(Mother|Father):\s*/, ''),
-    phone: student.guardian,
-    note: student.sub,
-    status: (['At School', 'In Transit', 'Missing Scan', 'Teacher Updated'].includes(student.status) ? student.status : 'Teacher Updated') as StudentFormState['status'],
-    parentSmsEnabled: student.parentSmsEnabled ?? true,
-  };
-}
-
-function buildStudent(form: StudentFormState, existing: TeacherStudent): TeacherStudent {
-  return {
-    ...existing,
-    name: form.name.trim(),
-    sub: form.note.trim() || 'Updated by class incharge',
-    status: form.status,
-    stCls: statusClass(form.status),
-    guardian: form.phone.trim() || '+1 (555) 000-0000',
-    gSub: form.guardian.trim() ? `Guardian: ${form.guardian.trim()}` : 'Guardian: Pending',
-    activity: 'Record edited from teacher student edit page',
-    alert: form.status === 'Missing Scan',
-    parentSmsEnabled: form.parentSmsEnabled,
-  };
-}
-
-function storedStudentToTeacherStudent(student: BackendStudent): TeacherStudent {
-  const status = student.travel_status === 'absent' ? 'Missing Scan' : student.travel_status === 'to_school' ? 'In Transit' : 'At School';
-  return {
-    name: student.full_name, sub: student.attendance_status === 'absent' ? 'Attendance marked absent' : 'Stored SafeReach record',
-    id: student.id, studentCode: student.student_code, grade: `${student.class_name}-${student.section_name}`,
-    status, stCls: status === 'Missing Scan' ? 'bg-error-container/20 text-error border-error/20' : 'bg-secondary-container/10 text-secondary border-secondary/20',
-    guardian: student.parent_phone || 'Phone unavailable', gSub: student.guardian_name ? `Guardian: ${student.guardian_name}` : 'Guardian: Not assigned',
-    activity: 'Stored SafeReach record', img: fallbackImage, alert: student.travel_status === 'absent', parentSmsEnabled: student.sms_enabled,
-  };
-}
 
 function TeacherStudentEditContent() {
   const router = useRouter();
   const params = useSearchParams();
   const studentId = params?.get('id') ?? '';
-  const [students, setStudents] = useState<TeacherStudent[]>(teacherStudentSeed);
-  const [formState, setFormState] = useState<StudentFormState>(emptyForm);
+  const { data, loading } = useBackendBootstrap();
+  const assignment = getCurrentTeacherAssignment(data);
+  const assignedClass = `${assignment.className}-${assignment.sectionName}`;
+
+  const [formState, setFormState] = useState<StudentEditForm>(emptyForm);
   const [notice, setNotice] = useState('');
-  const { data } = useBackendBootstrap();
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  const student = data.students.find(item => item.id === studentId);
 
   useEffect(() => {
-    const loaded = readStudents();
-    setStudents(loaded);
-    const student = loaded.find(item => item.id === studentId);
     if (student) {
-      setFormState(formFromStudent(student));
-      setNotice(`Editing ${student.name} in ${assignedClass}.`);
-    } else {
-      setNotice('Student record was not found. Return to My Students and select a valid student.');
+      setFormState({
+        name: student.full_name,
+        rollNo: student.roll_no,
+        guardian: student.guardian_name || '',
+        phone: student.parent_phone || '',
+        email: (student as any).parent_email || '',
+        note: (student as any).emergency_notes || '',
+        gender: (student as any).gender || 'Male',
+        parentSmsEnabled: student.sms_enabled ?? true,
+      });
+      setNotice(`Editing ${student.full_name} (${student.student_code})`);
+    } else if (!loading) {
+      setNotice('Student record was not found in the roster.');
     }
-  }, [studentId]);
+  }, [student, loading]);
 
-  useEffect(() => {
-    const stored = data.students.find(item => item.id === studentId);
-    if (!stored) return;
-    const loadedStudent = storedStudentToTeacherStudent(stored);
-    setStudents(current => [loadedStudent, ...current.filter(item => item.id !== studentId)]);
-    setFormState(formFromStudent(loadedStudent));
-    setNotice(`Editing ${loadedStudent.name} in ${loadedStudent.grade}.`);
-  }, [data.students, studentId]);
-
-  const student = students.find(item => item.id === studentId);
-
-  function updateForm(key: keyof StudentFormState, value: string) {
+  function updateForm(key: keyof StudentEditForm, value: any) {
     setFormState(current => ({ ...current, [key]: value }));
   }
 
-  function updateSmsEnabled(enabled: boolean) {
-    setFormState(current => ({ ...current, parentSmsEnabled: enabled }));
-  }
-
-  async function saveStudent(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
     if (!student || !formState.name.trim()) return;
-    if (data.students.some(item => item.id === student.id)) {
-      try {
-        const response = await fetch(`${apiBaseUrl}/students/${encodeURIComponent(student.id)}/sms-enabled`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: formState.parentSmsEnabled }),
-        });
-        if (!response.ok) throw new Error('Unable to update the parent SMS setting.');
-      } catch (reason) {
-        setNotice(reason instanceof Error ? reason.message : 'Unable to update the parent SMS setting.');
-        return;
-      }
+    setSaving(true);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/students/${encodeURIComponent(student.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: formState.name.trim(),
+          rollNo: formState.rollNo.trim(),
+          guardianName: formState.guardian.trim(),
+          parentPhone: formState.phone.trim(),
+          parentEmail: formState.email.trim(),
+          gender: formState.gender,
+          emergencyNotes: formState.note.trim(),
+          smsEnabled: formState.parentSmsEnabled,
+        }),
+      });
+
+      const res = await response.json();
+      if (!response.ok) throw new Error(res.message || 'Failed to update student');
+
+      setNotice(`✅ ${formState.name.trim()} updated successfully!`);
+      router.push('/teacher/students');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Error updating student');
+    } finally {
+      setSaving(false);
     }
-    const updated = students.map(item => item.id === student.id ? buildStudent(formState, student) : item);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    setNotice(`${formState.name.trim()} updated successfully.`);
-    router.push('/teacher/students');
   }
 
-  function deleteStudent() {
-    if (!student || !window.confirm(`Delete ${student.name} from ${assignedClass}? This cannot be undone.`)) return;
-    const updated = students.filter(item => item.id !== student.id);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    router.push('/teacher/students');
+  async function handleDelete() {
+    if (!student || !window.confirm(`Are you sure you want to remove ${student.full_name} from ${assignedClass}?`)) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/students/${encodeURIComponent(student.id)}`, {
+        method: 'DELETE',
+      });
+      const res = await response.json();
+      if (!response.ok) throw new Error(res.message || 'Failed to delete student');
+
+      router.push('/teacher/students');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Error deleting student');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleResendInvite() {
+    if (!student || !formState.email) return;
+    setResending(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/students/${encodeURIComponent(student.id)}/resend-parent-invite`, {
+        method: 'POST',
+      });
+      const res = await response.json();
+      if (!response.ok) throw new Error(res.message || 'Failed to dispatch email');
+
+      setNotice(`📧 Parent welcome & login credentials email dispatched to ${res.recipientEmail}!`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Error sending email');
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (loading) {
+    return <LoadingRing size="lg" />;
   }
 
   return (
-    <div className="p-container-padding-mobile md:p-container-padding-desktop flex flex-col gap-stack-lg">
+    <div className="p-container-padding-mobile md:p-container-padding-desktop flex flex-col gap-stack-lg max-w-4xl mx-auto">
       <nav className="flex flex-wrap items-center gap-2 text-label-md text-on-surface-variant">
-        <Link href="/teacher/students" className="hover:text-primary">My Students</Link>
+        <Link href="/teacher/students" className="hover:text-primary">My Students ({assignedClass})</Link>
         <span className="material-symbols-outlined text-[16px]">chevron_right</span>
         <span className="font-bold text-primary">Edit Student</span>
       </nav>
 
-      <section className="bg-white rounded-xl border border-outline-variant/50 shadow-sm p-stack-md">
-        <div className="mb-5">
-          <h1 className="font-headline-lg text-headline-lg text-primary">Edit Assigned Student</h1>
-          <p className="text-body-md text-on-surface-variant">Teacher login can edit students assigned to {assignedClass} only in this frontend demo.</p>
+      <section className="bg-surface rounded-2xl border border-outline-variant shadow-sm p-6 space-y-6">
+        <div>
+          <h1 className="font-headline-lg text-headline-lg text-primary">Edit Student Details</h1>
+          <p className="text-body-md text-on-surface-variant">
+            Update student profile, guardian contact, parent login email and safety preferences.
+          </p>
         </div>
-        {notice && <div className="mb-5 rounded-lg bg-primary/5 border border-primary/15 px-4 py-3 text-primary font-bold">{notice}</div>}
+
+        {notice && (
+          <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-3 text-primary font-bold text-sm">
+            {notice}
+          </div>
+        )}
 
         {student ? (
-          <form onSubmit={saveStudent} className="space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <label className="space-y-1.5">
-                <span className="text-label-sm font-bold text-on-surface-variant">Student ID</span>
-                <input value={student.studentCode ?? student.id} disabled className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-label-sm font-bold text-on-surface-variant">Student Name</span>
-                <input value={formState.name} onChange={event => updateForm('name', event.target.value)} required className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-label-sm font-bold text-on-surface-variant">Guardian Name</span>
-                <input value={formState.guardian} onChange={event => updateForm('guardian', event.target.value)} className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-label-sm font-bold text-on-surface-variant">Guardian Phone</span>
-                <input value={formState.phone} onChange={event => updateForm('phone', event.target.value)} className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-label-sm font-bold text-on-surface-variant">Tracking Status</span>
-                <select value={formState.status} onChange={event => updateForm('status', event.target.value)} className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container">
-                  <option>At School</option>
-                  <option>In Transit</option>
-                  <option>Missing Scan</option>
-                  <option>Teacher Updated</option>
-                </select>
-              </label>
-              <label className="space-y-1.5 md:col-span-2 xl:col-span-3">
-                <span className="text-label-sm font-bold text-on-surface-variant">Student note / medical or transport detail</span>
-                <input value={formState.note} onChange={event => updateForm('note', event.target.value)} className="w-full px-4 py-3 rounded-lg border border-outline-variant bg-surface-container" />
-              </label>
+          <form onSubmit={handleSave} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-label-sm font-bold text-on-surface mb-1">Student ID / Code</label>
+                <input
+                  value={student.student_code}
+                  disabled
+                  className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container text-on-surface-variant font-mono text-sm"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-label-sm font-bold text-on-surface mb-1">Student Full Name *</label>
+                <input
+                  required
+                  value={formState.name}
+                  onChange={e => updateForm('name', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
             </div>
-            <div className="rounded-xl border border-outline-variant/50 bg-surface-container-low p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-label-sm font-bold text-on-surface mb-1">Roll Number</label>
+                <input
+                  value={formState.rollNo}
+                  onChange={e => updateForm('rollNo', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-label-sm font-bold text-on-surface mb-1">Gender</label>
+                <select
+                  value={formState.gender}
+                  onChange={e => updateForm('gender', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                >
+                  <option>Male</option>
+                  <option>Female</option>
+                  <option>Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="border-t border-outline-variant/30 pt-4">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-primary text-sm flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px]">family_restroom</span>
+                  Guardian Contact & Parent Portal Access
+                </h3>
+                {formState.email && (
+                  <button
+                    type="button"
+                    onClick={handleResendInvite}
+                    disabled={resending}
+                    className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs rounded-lg hover:bg-emerald-100 flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">mail</span>
+                    {resending ? 'Sending...' : 'Resend Parent Invite'}
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-label-sm font-bold text-on-surface mb-1">Guardian Name</label>
+                  <input
+                    value={formState.guardian}
+                    onChange={e => updateForm('guardian', e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm font-bold text-on-surface mb-1">Guardian Phone (SMS)</label>
+                  <input
+                    value={formState.phone}
+                    onChange={e => updateForm('phone', e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm font-bold text-on-surface mb-1">Guardian Email (Portal Login)</label>
+                  <input
+                    type="email"
+                    value={formState.email}
+                    onChange={e => updateForm('email', e.target.value)}
+                    placeholder="parent@example.com"
+                    className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-label-sm font-bold text-on-surface mb-1">Medical, Transport & Safety Notes</label>
+              <textarea
+                rows={2}
+                value={formState.note}
+                onChange={e => updateForm('note', e.target.value)}
+                placeholder="Bus route, allergies, special medical instructions..."
+                className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-container focus:ring-2 focus:ring-primary outline-none text-sm"
+              />
+            </div>
+
+            {/* Parent SMS Alert Toggle */}
+            <div className="rounded-2xl border border-outline-variant/50 bg-surface-container-low p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-primary mt-0.5">sms</span>
                 <div>
-                  <h2 className="font-bold text-primary">Parent SMS Alerts</h2>
-                  <p className="text-label-md text-on-surface-variant">When enabled, this parent receives SMS only after the teacher submits this student's absence. Leave-school SMS remains available for enabled parents.</p>
+                  <h4 className="font-bold text-primary text-sm">Parent SMS Alerts</h4>
+                  <p className="text-xs text-on-surface-variant">When enabled, parent receives automatic SMS on morning absence and afternoon departures.</p>
                 </div>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={formState.parentSmsEnabled}
-                onClick={() => updateSmsEnabled(!formState.parentSmsEnabled)}
-                className={`relative inline-flex h-9 w-20 shrink-0 items-center rounded-full px-1 transition-colors ${formState.parentSmsEnabled ? 'bg-secondary' : 'bg-outline-variant'}`}
+                onClick={() => updateForm('parentSmsEnabled', !formState.parentSmsEnabled)}
+                className={`relative inline-flex h-8 w-16 shrink-0 items-center rounded-full px-1 transition-colors ${
+                  formState.parentSmsEnabled ? 'bg-secondary' : 'bg-outline-variant'
+                }`}
               >
-                <span className={`h-7 w-7 rounded-full bg-white shadow transition-transform ${formState.parentSmsEnabled ? 'translate-x-11' : 'translate-x-0'}`}></span>
-                <span className={`absolute text-[10px] font-bold ${formState.parentSmsEnabled ? 'left-3 text-on-secondary' : 'right-3 text-on-surface-variant'}`}>
-                  {formState.parentSmsEnabled ? 'ON' : 'OFF'}
-                </span>
+                <span className={`h-6 w-6 rounded-full bg-white shadow transition-transform ${formState.parentSmsEnabled ? 'translate-x-8' : 'translate-x-0'}`}></span>
               </button>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button type="submit" className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-on-primary font-bold">
-                <span className="material-symbols-outlined text-[20px]">save</span>
-                Save Student
+
+            <div className="flex justify-between items-center pt-4 border-t border-outline-variant/30">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2.5 rounded-xl border border-error text-error font-bold text-sm hover:bg-error/10 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[18px]">delete</span>
+                {deleting ? 'Removing...' : 'Delete Student'}
               </button>
-              <Link href="/teacher/students" className="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-outline-variant font-bold text-on-surface">
-                Cancel
-              </Link>
-            </div>
-            <div className="border-t border-outline-variant/50 pt-5">
-              <button type="button" onClick={deleteStudent} className="inline-flex items-center gap-2 rounded-lg border border-error px-5 py-3 font-bold text-error hover:bg-error-container/30">
-                <span className="material-symbols-outlined text-[20px]">delete</span>
-                Delete Student
-              </button>
+
+              <div className="flex gap-3">
+                <Link
+                  href="/teacher/students"
+                  className="px-5 py-2.5 rounded-xl border border-outline-variant font-bold text-on-surface hover:bg-surface-container"
+                >
+                  Cancel
+                </Link>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-md hover:opacity-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[18px]">save</span>
+                  {saving ? 'Saving...' : 'Save Student'}
+                </button>
+              </div>
             </div>
           </form>
         ) : (
-          <Link href="/teacher/students" className="inline-flex w-fit items-center gap-2 px-5 py-3 rounded-lg bg-primary text-on-primary font-bold">
-            Back to My Students
-          </Link>
+          <div className="text-center py-8">
+            <p className="text-on-surface-variant mb-4">Student record not found.</p>
+            <Link href="/teacher/students" className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl">
+              Back to My Students
+            </Link>
+          </div>
         )}
       </section>
     </div>
@@ -275,4 +339,3 @@ export default function TeacherStudentEditPage() {
     </Suspense>
   );
 }
-

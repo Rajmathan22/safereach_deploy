@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import Link from '@/src/next-link';
 import { useState } from 'react';
@@ -23,16 +23,16 @@ export default function MainAdminShell({ active, title, subtitle, children }: Ma
   const [menuOpen, setMenuOpen] = useState(false);
 
   const sidebar = (
-    <aside className="w-64 h-[100svh] max-h-[100svh] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] bg-surface border-r border-outline-variant/60 flex flex-col p-3 pb-4 shadow-sm">
-      <div className="mb-7 rounded-lg bg-surface-container-low px-3 py-3">
+    <aside className="w-64 h-[100svh] max-h-[100svh] overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] bg-surface border-r border-outline-variant/60 flex flex-col p-3 pb-6 shadow-sm custom-scrollbar">
+      <div className="mb-7 rounded-lg bg-surface-container-low px-3 py-3 shrink-0">
         <div className="flex items-center gap-2 mb-1">
           <LogoMark className="h-8 w-8 rounded-md" />
-        <div>
-          <p className="font-headline-md font-extrabold text-on-surface leading-tight">SafeReach</p>
-        </div>
+          <div>
+            <p className="font-headline-md font-extrabold text-on-surface leading-tight">SafeReach</p>
+          </div>
         </div>
       </div>
-      <nav className="min-h-0 flex-1 space-y-1">
+      <nav className="flex flex-col space-y-1 shrink-0">
         {navItems.map(item => (
           <Link
             key={item.id}
@@ -45,7 +45,7 @@ export default function MainAdminShell({ active, title, subtitle, children }: Ma
           </Link>
         ))}
       </nav>
-      <div className="mt-auto shrink-0 space-y-1 border-t border-outline-variant/60 pt-4">
+      <div className="mt-4 pt-4 border-t border-outline-variant/60 shrink-0 space-y-1 pb-4">
         <Link href="/school-registration" className="flex items-center gap-3 rounded-md px-3 py-2.5 text-primary hover:bg-surface-container-low font-label-md">
           <span className="material-symbols-outlined text-[20px]">domain_add</span>
           School Registration URL
@@ -93,4 +93,3 @@ export default function MainAdminShell({ active, title, subtitle, children }: Ma
     </div>
   );
 }
-

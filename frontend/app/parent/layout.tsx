@@ -3,20 +3,18 @@
 import { usePathname } from '@/src/next-navigation';
 import Link from '@/src/next-link';
 import { useState } from 'react';
+import ParentChildSelector from '@/components/ParentChildSelector';
 import ParentSidebar from '@/components/ParentSidebar';
 import RoleBootstrapLoader from '@/components/RoleBootstrapLoader';
 
-type ActiveItem = 'dashboard' | 'students' | 'attendance' | 'messages' | 'reports' | 'timetable';
-
-const itemMap: Record<string, ActiveItem> = {
-  '/parent/dashboard': 'dashboard',
-  '/parent/students': 'students',
-  '/parent/attendance': 'attendance',
-  '/parent/messages': 'messages',
-  '/parent/reports': 'reports',
-  '/parent/timetable': 'timetable',
-  '/parent/notifications': 'messages',
-};
+function getParentSidebar(p: string): ActiveItem {
+  if (p.includes('/students') || p.includes('/children')) return 'students';
+  if (p.includes('/attendance')) return 'attendance';
+  if (p.includes('/timetable')) return 'timetable';
+  if (p.includes('/messages') || p.includes('/notifications')) return 'messages';
+  if (p.includes('/reports')) return 'reports';
+  return 'dashboard';
+}
 
 const titleMap: Record<string, { title: string; sub: string }> = {
   '/parent/dashboard': { title: 'Parent Dashboard', sub: 'Real-time safety overview for your children' },
@@ -35,7 +33,7 @@ const titleMap: Record<string, { title: string; sub: string }> = {
 export default function ParentLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '';
   const [menuOpen, setMenuOpen] = useState(false);
-  const activeItem: ActiveItem = itemMap[pathname] ?? 'dashboard';
+  const activeItem: ActiveItem = getParentSidebar(pathname);
   const { title, sub } = titleMap[pathname] ?? { title: 'Parent Portal', sub: '' };
 
   return (
@@ -69,6 +67,7 @@ export default function ParentLayout({ children }: { children: React.ReactNode }
             </Link>
           </div>
         </header>
+        <ParentChildSelector />
         <main className="flex-1">
           {children}
         </main>

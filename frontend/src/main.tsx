@@ -54,6 +54,7 @@ import TeacherResultsPage from "@/app/teacher/results/page";
 import TeacherResultsEditPage from "@/app/teacher/results/edit/page";
 import TeacherSettingsPage from "@/app/teacher/settings/page";
 import TeacherStudentsPage from "@/app/teacher/students/page";
+import TeacherStudentsAddPage from "@/app/teacher/students/add/page";
 import TeacherStudentsEditPage from "@/app/teacher/students/edit/page";
 import TeacherSupportPage from "@/app/teacher/support/page";
 import TeacherTimetablePage from "@/app/teacher/timetable/page";
@@ -129,12 +130,12 @@ const teacherRoutes: Record<string, React.ComponentType> = {
   "/teacher/results/edit": TeacherResultsEditPage,
   "/teacher/settings": TeacherSettingsPage,
   "/teacher/students": TeacherStudentsPage,
+  "/teacher/students/add": TeacherStudentsAddPage,
   "/teacher/students/edit": TeacherStudentsEditPage,
   "/teacher/support": TeacherSupportPage,
   "/teacher/timetable": TeacherTimetablePage,
   "/teacher/timetable/edit": TeacherTimetableEditPage,
 };
-
 const parentRoutes: Record<string, React.ComponentType> = {
   "/parent": ParentDashboardPage,
   "/parent/attendance": ParentAttendancePage,

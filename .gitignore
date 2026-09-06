@@ -54,3 +54,6 @@ frontend/.runtime-deps/
 backend/json_backups/*/
 !backend/json_backups/README.md
 !backend/json_backups/.gitkeep
+.vscode/
+.edge-qa-workspace/
+

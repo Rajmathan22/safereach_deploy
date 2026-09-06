@@ -12,6 +12,7 @@ import {
   type IndustryMenuAccess,
   type IndustryMenuKey,
 } from '@/lib/industryAccess';
+import { apiBaseUrl } from '@/lib/runtimeConfig';
 
 type RequestStatus = 'Pending' | 'Accepted' | 'Rejected';
 
@@ -224,12 +225,26 @@ export default function MainAdminDashboardPage() {
     return { totalStaff, totalClasses, totalStudents };
   }, [schools]);
 
-  function updateRequest(requestId: string, status: RequestStatus) {
+  async function updateRequest(requestId: string, status: RequestStatus) {
     const updated = requests.map(request => request.id === requestId ? { ...request, status } : request);
     setRequests(updated);
     window.localStorage.setItem(REQUEST_KEY, JSON.stringify(updated.filter(request => !seedRequests.some(seed => seed.id === request.id))));
     const request = requests.find(item => item.id === requestId);
     if (!request) return;
+
+    try {
+      fetch(`${apiBaseUrl}/super-admin/requests/${encodeURIComponent(requestId)}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision: status === 'Accepted' ? 'approved' : 'rejected',
+          reason: status === 'Accepted' ? 'Approved by Super Admin' : 'Declined by Super Admin',
+        }),
+      }).catch(() => undefined);
+    } catch {
+      // Keep optimistic UI
+    }
+
     if (status === 'Accepted') {
       setSmsLog(`SMS to ${request.phone}: SafeReach school environment approved. Login email: ${request.email}. Password: ${request.password}. URL: /login/admin`);
       const newSchool: School = {
@@ -259,7 +274,7 @@ export default function MainAdminDashboardPage() {
         ...item,
         sections: item.sections.map(section => section.name !== selectedSection.name ? section : {
           ...section,
-          students: section.students.filter(student => student.id !== studentId),
+          students: section.students.filter(s => s.id !== studentId),
         }),
       }),
     }));
