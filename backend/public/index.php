@@ -248,5 +248,23 @@ $router->get('/api/v1/email-logs', function () {
     return EmailService::listDeliveryLogs();
 });
 
+// Timetable Management
+$router->get('/api/v1/timetables', function ($params, $body, $query) {
+    return SafeReachService::getTimetable(
+        $query['className'] ?? $query['class_name'] ?? null,
+        $query['section'] ?? $query['section_name'] ?? null,
+        $query['schoolId'] ?? null
+    );
+});
+$router->get('/api/v1/timetables/all', function ($params, $body, $query) {
+    return SafeReachService::listAllTimetables($query['schoolId'] ?? null);
+});
+$router->post('/api/v1/timetables', function ($params, $body) {
+    return SafeReachService::saveTimetable($body, $body['actorUserId'] ?? null, $body['schoolId'] ?? null);
+});
+$router->put('/api/v1/timetables', function ($params, $body) {
+    return SafeReachService::saveTimetable($body, $body['actorUserId'] ?? null, $body['schoolId'] ?? null);
+});
+
 // Dispatch current request
 $router->dispatch();

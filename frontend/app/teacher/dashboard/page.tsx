@@ -22,14 +22,27 @@ export default function TeacherDashboardPage() {
   const [newProtocol, setNewProtocol] = useState('');
   const [notice, setNotice] = useState('');
   const [dayIndex, setDayIndex] = useState(0);
-  const timetableDays = bootstrap.timetable.days;
-  const activeDay = timetableDays[dayIndex] ?? timetableDays[0] ?? { label: 'No timetable', periods: [] };
-  const timetableClassLabel = bootstrap.timetable.className && bootstrap.timetable.section
-    ? `${bootstrap.timetable.className}-${bootstrap.timetable.section}`
-    : '-';
+  const [timetableData, setTimetableData] = useState(bootstrap.timetable);
+
+  useEffect(() => {
+    if (bootstrap.timetable?.days?.length) {
+      setTimetableData(bootstrap.timetable);
+    }
+    const onUpdate = (e: any) => {
+      if (e?.detail) setTimetableData(e.detail);
+    };
+    window.addEventListener('safereach-timetable-updated', onUpdate);
+    return () => window.removeEventListener('safereach-timetable-updated', onUpdate);
+  }, [bootstrap.timetable]);
+
+  const timetableDays = timetableData.days || [];
+  const activeDay = timetableDays[dayIndex] ?? timetableDays[0] ?? { label: 'Monday', periods: [] };
+  const timetableClassLabel = timetableData.className && timetableData.section
+    ? `${timetableData.className}-${timetableData.section}`
+    : 'Class 4-B';
   const teacherPeriods = useMemo(() => activeDay.periods.map(period => ({
     subject: period,
-    classLabel: period && period !== '-' ? timetableClassLabel : '-',
+    classLabel: period && period !== '-' && period !== 'Free' ? timetableClassLabel : 'Free Hour',
   })), [activeDay.periods, timetableClassLabel]);
 
   useEffect(() => {

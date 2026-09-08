@@ -413,34 +413,79 @@ class SafeReachService {
     }
 
     private static function buildTimetable(\PDO $pdo, ?string $schoolId): array {
-        $stmtSec = $pdo->query("
-            SELECT c.id AS class_id, sec.id AS section_id, c.name AS class_name, sec.name AS section_name
-            FROM teacher_assignments ta
-            JOIN teachers t ON t.id = ta.teacher_id
-            JOIN users u ON u.id = t.user_id
-            JOIN classes c ON c.id = ta.class_id
-            JOIN sections sec ON sec.id = ta.section_id
-            WHERE ta.active = TRUE
-            ORDER BY (u.full_name = 'Sarah Jenkins') DESC, c.sort_order, sec.name
-            LIMIT 1
-        ");
-        $section = $stmtSec->fetch();
+        return self::getTimetable(null, null, $schoolId);
+    }
 
-        if (!$section) {
-            return [
-                'className' => 'Class 4',
-                'section'   => 'A',
-                'breaks'    => [],
-                'days'      => [],
-            ];
+    public static function getTimetable(?string $className = null, ?string $sectionName = null, ?string $schoolId = null): array {
+        $pdo = Database::getConnection();
+        $sId = self::resolveSchoolId($pdo, $schoolId);
+
+        $classId = null;
+        $secId = null;
+        $resolvedClass = $className;
+        $resolvedSection = $sectionName;
+
+        if ($className && $sectionName) {
+            $stmtSec = $pdo->prepare("
+                SELECT c.id AS class_id, sec.id AS section_id, c.name AS class_name, sec.name AS section_name
+                FROM classes c
+                JOIN sections sec ON sec.class_id = c.id
+                WHERE c.school_id = ? AND c.name = ? AND sec.name = ?
+                LIMIT 1
+            ");
+            $stmtSec->execute([$sId, $className, $sectionName]);
+            $row = $stmtSec->fetch();
+            if ($row) {
+                $classId = $row['class_id'];
+                $secId = $row['section_id'];
+                $resolvedClass = $row['class_name'];
+                $resolvedSection = $row['section_name'];
+            }
         }
 
-        $classId = $section['class_id'];
-        $secId = $section['section_id'];
+        if (!$classId || !$secId) {
+            $stmtDefault = $pdo->prepare("
+                SELECT c.id AS class_id, sec.id AS section_id, c.name AS class_name, sec.name AS section_name
+                FROM classes c
+                JOIN sections sec ON sec.class_id = c.id
+                WHERE c.school_id = ?
+                ORDER BY c.sort_order, c.name, sec.name
+                LIMIT 1
+            ");
+            $stmtDefault->execute([$sId]);
+            $row = $stmtDefault->fetch();
+            if ($row) {
+                $classId = $row['class_id'];
+                $secId = $row['section_id'];
+                $resolvedClass = $row['class_name'];
+                $resolvedSection = $row['section_name'];
+            }
+        }
+
+        if (!$classId || !$secId) {
+            return [
+                'className'       => $className ?: 'Class 4',
+                'section'         => $sectionName ?: 'B',
+                'breaks'          => [
+                    ['id' => 'interval1', 'label' => 'Interval-1', 'afterPeriod' => 2, 'tone' => 'interval'],
+                    ['id' => 'lunch', 'label' => 'Lunch', 'afterPeriod' => 4, 'tone' => 'lunch'],
+                    ['id' => 'interval2', 'label' => 'Interval-2', 'afterPeriod' => 6, 'tone' => 'interval'],
+                ],
+                'days'            => [],
+                'subjectTeachers' => [],
+            ];
+        }
 
         $stmtBreaks = $pdo->prepare("SELECT break_key AS id, label, after_period AS afterPeriod, tone FROM timetable_breaks WHERE class_id = ? AND section_id = ? ORDER BY after_period");
         $stmtBreaks->execute([$classId, $secId]);
         $breaks = $stmtBreaks->fetchAll();
+        if (empty($breaks)) {
+            $breaks = [
+                ['id' => 'interval1', 'label' => 'Interval-1', 'afterPeriod' => 2, 'tone' => 'interval'],
+                ['id' => 'lunch', 'label' => 'Lunch', 'afterPeriod' => 4, 'tone' => 'lunch'],
+                ['id' => 'interval2', 'label' => 'Interval-2', 'afterPeriod' => 6, 'tone' => 'interval'],
+            ];
+        }
 
         $stmtPeriods = $pdo->prepare("SELECT day_name, period_no, subject FROM timetable_periods WHERE class_id = ? AND section_id = ? ORDER BY period_no");
         $stmtPeriods->execute([$classId, $secId]);
@@ -456,19 +501,191 @@ class SafeReachService {
 
         $days = [];
         foreach ($daysMap as $dayName => $pList) {
-            $days[] = [
-                'id'      => strtolower($dayName),
-                'label'   => $dayName,
-                'periods' => $pList,
-            ];
+            if (!empty($pList)) {
+                $days[] = [
+                    'id'      => strtolower($dayName),
+                    'label'   => $dayName,
+                    'periods' => $pList,
+                ];
+            }
+        }
+
+        if (empty($days)) {
+            $defaultSubjects = ['English', 'Maths', 'Science', 'Social', 'Computer', 'Tamil', 'Activity', 'Library'];
+            foreach (["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as $dIdx => $dName) {
+                $pList = [];
+                for ($p = 1; $p <= 8; $p++) {
+                    $pList[] = $defaultSubjects[($dIdx + $p - 1) % count($defaultSubjects)];
+                }
+                $days[] = [
+                    'id'      => strtolower($dName),
+                    'label'   => $dName,
+                    'periods' => $pList,
+                ];
+            }
+        }
+
+        $stmtTeachers = $pdo->prepare("
+            SELECT ta.subject, u.full_name AS teacher_name
+            FROM teacher_assignments ta
+            JOIN teachers t ON t.id = ta.teacher_id
+            JOIN users u ON u.id = t.user_id
+            WHERE ta.class_id = ? AND ta.section_id = ? AND ta.active = TRUE
+        ");
+        $stmtTeachers->execute([$classId, $secId]);
+        $subjectTeachers = [];
+        foreach ($stmtTeachers->fetchAll() as $tRow) {
+            if (!empty($tRow['subject'])) {
+                $subjectTeachers[$tRow['subject']] = $tRow['teacher_name'];
+            }
         }
 
         return [
-            'className' => $section['class_name'],
-            'section'   => $section['section_name'],
-            'breaks'    => $breaks,
-            'days'      => $days,
+            'classId'         => $classId,
+            'sectionId'       => $secId,
+            'className'       => $resolvedClass,
+            'section'         => $resolvedSection,
+            'breaks'          => $breaks,
+            'days'            => $days,
+            'subjectTeachers' => $subjectTeachers,
         ];
+    }
+
+    public static function saveTimetable(array $payload, ?string $actorUserId = null, ?string $schoolId = null): array {
+        $pdo = Database::getConnection();
+        $sId = self::resolveSchoolId($pdo, $schoolId ?: ($payload['schoolId'] ?? null));
+
+        $className = trim($payload['className'] ?? '');
+        $sectionName = trim($payload['section'] ?? '');
+
+        if (!$className || !$sectionName) {
+            throw new \InvalidArgumentException("Class name and section name are required");
+        }
+
+        // 1. Find or create Class
+        $stmtClass = $pdo->prepare("SELECT id FROM classes WHERE school_id = ? AND name = ?");
+        $stmtClass->execute([$sId, $className]);
+        $classId = $stmtClass->fetchColumn();
+        if (!$classId) {
+            $classId = self::uuid();
+            $pdo->prepare("INSERT INTO classes (id, school_id, name, sort_order) VALUES (?, ?, ?, 1)")
+                ->execute([$classId, $sId, $className]);
+        }
+
+        // 2. Find or create Section
+        $stmtSec = $pdo->prepare("SELECT id FROM sections WHERE school_id = ? AND class_id = ? AND name = ?");
+        $stmtSec->execute([$sId, $classId, $sectionName]);
+        $sectionId = $stmtSec->fetchColumn();
+        if (!$sectionId) {
+            $sectionId = self::uuid();
+            $pdo->prepare("INSERT INTO sections (id, school_id, class_id, name, room) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$sectionId, $sId, $classId, $sectionName, "Room {$className}-{$sectionName}"]);
+        }
+
+        // 3. Clear existing periods & breaks for this section
+        $pdo->prepare("DELETE FROM timetable_periods WHERE class_id = ? AND section_id = ?")
+            ->execute([$classId, $sectionId]);
+        $pdo->prepare("DELETE FROM timetable_breaks WHERE class_id = ? AND section_id = ?")
+            ->execute([$classId, $sectionId]);
+
+        // 4. Insert breaks
+        $breaks = $payload['breaks'] ?? [];
+        if (empty($breaks)) {
+            $breaks = [
+                ['id' => 'interval1', 'label' => 'Interval-1', 'afterPeriod' => 2, 'tone' => 'interval'],
+                ['id' => 'lunch', 'label' => 'Lunch', 'afterPeriod' => 4, 'tone' => 'lunch'],
+                ['id' => 'interval2', 'label' => 'Interval-2', 'afterPeriod' => 6, 'tone' => 'interval'],
+            ];
+        }
+
+        $stmtInsBreak = $pdo->prepare("
+            INSERT INTO timetable_breaks (id, school_id, class_id, section_id, break_key, label, after_period, tone, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        foreach ($breaks as $brk) {
+            $bKey = $brk['id'] ?? 'interval';
+            $bLabel = $brk['label'] ?? 'Break';
+            $bAfter = (int)($brk['afterPeriod'] ?? 2);
+            $bTone = $brk['tone'] ?? ($bKey === 'lunch' ? 'lunch' : 'interval');
+            $stmtInsBreak->execute([self::uuid(), $sId, $classId, $sectionId, $bKey, $bLabel, $bAfter, $bTone, $actorUserId]);
+        }
+
+        // 5. Insert days and periods
+        $days = $payload['days'] ?? [];
+        $stmtInsPeriod = $pdo->prepare("
+            INSERT INTO timetable_periods (id, school_id, class_id, section_id, day_name, period_no, subject, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        foreach ($days as $day) {
+            $dayName = $day['label'] ?? 'Monday';
+            $periods = $day['periods'] ?? [];
+            foreach ($periods as $pIdx => $subject) {
+                $periodNo = $pIdx + 1;
+                $subjName = trim((string)$subject) ?: 'Free';
+                $stmtInsPeriod->execute([self::uuid(), $sId, $classId, $sectionId, $dayName, $periodNo, $subjName, $actorUserId]);
+            }
+        }
+
+        // 6. Update subject teachers if provided
+        $subjectTeachers = $payload['subjectTeachers'] ?? [];
+        if (is_array($subjectTeachers)) {
+            foreach ($subjectTeachers as $subj => $tName) {
+                if (!$subj || !$tName) continue;
+                $stmtT = $pdo->prepare("
+                    SELECT t.id FROM teachers t
+                    JOIN users u ON u.id = t.user_id
+                    WHERE u.full_name = ? OR u.full_name LIKE ?
+                    LIMIT 1
+                ");
+                $stmtT->execute([$tName, "%{$tName}%"]);
+                $tId = $stmtT->fetchColumn();
+                if ($tId) {
+                    $pdo->prepare("
+                        INSERT INTO teacher_assignments (id, school_id, teacher_id, class_id, section_id, assignment_type, subject, active)
+                        VALUES (?, ?, ?, ?, ?, 'subject_teacher', ?, TRUE)
+                        ON DUPLICATE KEY UPDATE subject=VALUES(subject), active=TRUE
+                    ")->execute([self::uuid(), $sId, $tId, $classId, $sectionId, $subj]);
+                }
+            }
+        }
+
+        // 7. Realtime broadcast
+        try {
+            Database::publishEvent('timetable.updated', [
+                'school_id'  => $sId,
+                'class_name' => $className,
+                'section'    => $sectionName,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $t) {}
+
+        return self::getTimetable($className, $sectionName, $sId);
+    }
+
+    public static function listAllTimetables(?string $schoolId = null): array {
+        $pdo = Database::getConnection();
+        $sId = self::resolveSchoolId($pdo, $schoolId);
+
+        $stmt = $pdo->prepare("
+            SELECT c.id AS class_id, c.name AS class_name, c.sort_order,
+                   sec.id AS section_id, sec.name AS section_name,
+                   (SELECT COUNT(*) FROM timetable_periods tp WHERE tp.class_id = c.id AND tp.section_id = sec.id) AS total_periods,
+                   (SELECT COUNT(DISTINCT tp.day_name) FROM timetable_periods tp WHERE tp.class_id = c.id AND tp.section_id = sec.id) AS total_days,
+                   COALESCE((
+                       SELECT u.full_name
+                       FROM teacher_assignments ta
+                       JOIN teachers t ON t.id = ta.teacher_id
+                       JOIN users u ON u.id = t.user_id
+                       WHERE ta.class_id = c.id AND ta.section_id = sec.id AND ta.assignment_type = 'primary_incharge' AND ta.active = TRUE
+                       LIMIT 1
+                   ), 'Sarah Jenkins') AS incharge_name
+            FROM classes c
+            JOIN sections sec ON sec.class_id = c.id
+            WHERE c.school_id = ?
+            ORDER BY c.sort_order, c.name, sec.name
+        ");
+        $stmt->execute([$sId]);
+        return $stmt->fetchAll();
     }
 
     // ==========================================
