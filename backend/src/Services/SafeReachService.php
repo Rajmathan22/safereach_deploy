@@ -243,12 +243,34 @@ class SafeReachService {
     }
 
     public static function markReadyToSchool(string $studentId, ?string $actorUserId = null): array {
-        return self::updateTravelStatus($studentId, 'to_school', 'ready_to_school', $actorUserId, null, false);
+        return self::updateTravelStatus($studentId, 'to_school', 'departed_from_home', $actorUserId, 'to_school', false);
+    }
+
+    public static function markReachedSchool(string $studentId, ?string $actorUserId = null): array {
+        $payload = self::updateTravelStatus($studentId, 'reached_school', 'reached_school', $actorUserId, 'reached_school', false);
+
+        $pdo = Database::getConnection();
+        $today = date('Y-m-d');
+        $stmtStudent = $pdo->prepare("SELECT school_id, class_id, section_id FROM students WHERE id = ?");
+        $stmtStudent->execute([$studentId]);
+        $st = $stmtStudent->fetch();
+
+        if ($st) {
+            $stmtAtt = $pdo->prepare("
+                INSERT INTO attendance_records (id, school_id, student_id, class_id, section_id, attendance_date, session, status, marked_by, locked)
+                VALUES (?, ?, ?, ?, ?, ?, 'morning', 'reached_school', ?, 1)
+                ON DUPLICATE KEY UPDATE status = 'reached_school', marked_by = VALUES(marked_by), locked = 1, updated_at = NOW()
+            ");
+            $stmtAtt->execute([self::uuid(), $st['school_id'], $studentId, $st['class_id'], $st['section_id'], $today, $actorUserId]);
+        }
+
+        return $payload;
     }
 
     public static function markReachedHome(string $studentId, ?string $actorUserId = null): array {
-        return self::updateTravelStatus($studentId, 'reached_home', 'reached_home', $actorUserId, null, false);
+        return self::updateTravelStatus($studentId, 'reached_home', 'reached_home', $actorUserId, 'reached_home', false);
     }
+
 
     public static function submitAttendance(string $studentId, string $status, ?string $actorUserId = null): array {
         if (!in_array($status, ['present', 'absent', 'late'], true)) {

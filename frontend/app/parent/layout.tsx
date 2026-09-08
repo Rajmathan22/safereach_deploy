@@ -19,7 +19,7 @@ function getParentSidebar(p: string): ActiveItem {
 const titleMap: Record<string, { title: string; sub: string }> = {
   '/parent/dashboard': { title: 'Parent Dashboard', sub: 'Real-time safety overview for your children' },
   '/parent/students': { title: 'My Children', sub: 'Live tracking and activity' },
-  '/parent/attendance': { title: 'Attendance', sub: 'Monthly attendance records' },
+  '/parent/attendance': { title: 'Travel & Presence Tracker', sub: 'Daily 4-stage journey and presence history' },
   '/parent/messages': { title: 'Messages', sub: 'School communications' },
   '/parent/reports': { title: 'Results', sub: 'Academic results and safety records' },
   '/parent/settings': { title: 'Settings', sub: 'Parent profile and notification preferences' },

@@ -156,7 +156,7 @@ export default function ParentDashboardPage() {
 
             {/* Main Safety Reaching Action Button */}
             <div className="flex flex-wrap items-center gap-3">
-              {child.status === 'at_home' && (
+              {(child.status === 'at_home' || child.status === 'reached_home') && (
                 <button
                   type="button"
                   onClick={handleStartTrip}
@@ -164,7 +164,7 @@ export default function ParentDashboardPage() {
                   className="flex items-center gap-2.5 px-6 py-3.5 bg-primary text-on-primary font-bold text-body-md rounded-2xl hover:opacity-95 active:scale-95 transition-all shadow-md"
                 >
                   <span className="material-symbols-outlined">directions_walk</span>
-                  {actionLoading ? 'Starting Trip...' : 'Start Trip to School'}
+                  {actionLoading ? 'Updating...' : 'Mark Departed from Home'}
                 </button>
               )}
 
@@ -172,8 +172,8 @@ export default function ParentDashboardPage() {
                 <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
                   <span className="inline-block w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
                   <div>
-                    <p className="text-xs font-bold text-amber-900">In Transit to School</p>
-                    <p className="text-label-sm text-amber-700">Awaiting Teacher Attendance Check-in</p>
+                    <p className="text-xs font-bold text-amber-900">On Travel to School</p>
+                    <p className="text-label-sm text-amber-700">Awaiting Teacher Arrival Confirmation</p>
                   </div>
                 </div>
               )}
@@ -183,7 +183,7 @@ export default function ParentDashboardPage() {
                   <span className="material-symbols-outlined text-emerald-600 text-[26px]">verified</span>
                   <div>
                     <p className="font-bold text-body-md">Reached School Safely</p>
-                    <p className="text-label-sm text-emerald-700">Class in session • Verified by Incharge</p>
+                    <p className="text-label-sm text-emerald-700">In class • Verified by Teacher</p>
                   </div>
                 </div>
               )}
@@ -193,18 +193,11 @@ export default function ParentDashboardPage() {
                   type="button"
                   onClick={handleConfirmReachedHome}
                   disabled={actionLoading}
-                  className="flex items-center gap-2.5 px-6 py-3.5 bg-emerald-700 text-white font-bold text-body-md rounded-2xl hover:bg-emerald-800 active:scale-95 transition-all shadow-md"
+                  className="flex items-center gap-2.5 px-6 py-3.5 bg-emerald-700 text-white font-bold text-body-md rounded-2xl hover:bg-emerald-800 active:scale-95 transition-all shadow-md animate-pulse"
                 >
                   <span className="material-symbols-outlined">home_pin</span>
-                  {actionLoading ? 'Confirming...' : 'Confirm Reached Home Safely'}
+                  {actionLoading ? 'Confirming...' : 'Confirm Reached Home'}
                 </button>
-              )}
-
-              {child.status === 'reached_home' && (
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl text-emerald-900 font-bold">
-                  <span className="material-symbols-outlined text-emerald-600">check_circle</span>
-                  <span>Safe at Home for Today</span>
-                </div>
               )}
             </div>
           </div>
@@ -212,52 +205,53 @@ export default function ParentDashboardPage() {
           {/* 4-Step Visual Student Reaching Timeline */}
           <div className="mt-8">
             <h4 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider mb-4">
-              Today's Daily Safety Reaching Timeline
+              Today's 4-Stage Travel & Safety Timeline
             </h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 {
-                  step: '1. Departure',
-                  title: 'Ready to School',
-                  desc: 'Trip started from home',
-                  icon: 'home',
+                  step: 'Stage 1',
+                  title: 'Departed Home',
+                  desc: 'Parent started travel',
+                  icon: 'directions_walk',
                   active: child.status !== 'at_home',
                   current: child.status === 'to_school',
                 },
                 {
-                  step: '2. Transit Check',
-                  title: 'Safe Transit',
-                  desc: 'En route / Bus GPS tracking',
-                  icon: 'directions_bus',
-                  active: child.status !== 'at_home',
-                  current: child.status === 'to_school',
-                },
-                {
-                  step: '3. School Gate',
+                  step: 'Stage 2',
                   title: 'Reached School',
-                  desc: 'Attendance marked Present',
+                  desc: 'Teacher verified in class',
                   icon: 'school',
                   active: ['reached_school', 'present', 'going_home', 'reached_home'].includes(child.status),
                   current: child.status === 'reached_school' || child.status === 'present',
                 },
                 {
-                  step: '4. Departure',
+                  step: 'Stage 3',
+                  title: 'Out of School',
+                  desc: 'Teacher marked departure',
+                  icon: 'directions_bus',
+                  active: ['going_home', 'reached_home'].includes(child.status),
+                  current: child.status === 'going_home',
+                },
+                {
+                  step: 'Stage 4',
                   title: 'Reached Home',
-                  desc: 'Parent safe arrival confirmed',
+                  desc: 'Parent confirmed safe',
                   icon: 'home_pin',
                   active: child.status === 'reached_home',
-                  current: child.status === 'going_home' || child.status === 'reached_home',
+                  current: child.status === 'reached_home',
                 },
               ].map(stage => (
                 <div
                   key={stage.step}
                   className={`p-4 rounded-2xl border transition-all ${
                     stage.current
-                      ? 'bg-primary/10 border-primary shadow-sm'
+                      ? 'bg-primary/10 border-primary ring-2 ring-primary/20 shadow-sm'
                       : stage.active
                       ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
                       : 'bg-surface border-outline-variant/50 opacity-60'
                   }`}
+
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold uppercase tracking-wider opacity-75">{stage.step}</span>

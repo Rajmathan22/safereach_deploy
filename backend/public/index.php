@@ -74,15 +74,32 @@ $router->patch('/api/v1/school-settings', function ($params, $body) {
     return SafeReachService::updateSchoolSettings($body, $body['actorUserId'] ?? null, $body['schoolId'] ?? null);
 });
 
-// Student Travel Lifecycle
+// Student Travel Lifecycle (4-Stage Workflow)
+$router->post('/api/v1/student-travel/{id}/depart-home', function ($params, $body) {
+    return SafeReachService::markReadyToSchool($params['id'], $body['actorUserId'] ?? null);
+});
 $router->post('/api/v1/student-travel/{id}/ready-to-school', function ($params, $body) {
     return SafeReachService::markReadyToSchool($params['id'], $body['actorUserId'] ?? null);
+});
+$router->post('/api/v1/student-travel/{id}/reached-school', function ($params, $body) {
+    return SafeReachService::markReachedSchool($params['id'], $body['actorUserId'] ?? null);
 });
 $router->post('/api/v1/student-travel/{id}/reached-home', function ($params, $body) {
     return SafeReachService::markReachedHome($params['id'], $body['actorUserId'] ?? null);
 });
 $router->post('/api/v1/student-travel/{id}/attendance', function ($params, $body) {
     return SafeReachService::submitAttendance($params['id'], $body['status'] ?? '', $body['actorUserId'] ?? null);
+});
+$router->post('/api/v1/student-travel/out-of-school', function ($params, $body) {
+    $studentIds = $body['studentIds'] ?? [];
+    if (!is_array($studentIds)) {
+        throw new \InvalidArgumentException("studentIds must be a list");
+    }
+    $records = [];
+    foreach ($studentIds as $sId) {
+        $records[] = SafeReachService::submitGoOut($sId, $body['actorUserId'] ?? null);
+    }
+    return ['ok' => true, 'records' => $records];
 });
 $router->post('/api/v1/student-travel/go-out', function ($params, $body) {
     $studentIds = $body['studentIds'] ?? [];
@@ -95,6 +112,7 @@ $router->post('/api/v1/student-travel/go-out', function ($params, $body) {
     }
     return ['ok' => true, 'records' => $records];
 });
+
 
 // Student SMS Preferences
 $router->patch('/api/v1/students/{id}/sms-enabled', function ($params, $body) {

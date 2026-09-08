@@ -1,153 +1,38 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { readDailyIds, writeDailyIds } from '@/lib/dailyActionLocks';
-import { travelStatusClass, travelStatusIcon, travelStatusLabel, useStudentTravelState } from '@/lib/studentTravel';
+import { useState } from 'react';
+import {
+  travelStatusClass,
+  travelStatusIcon,
+  travelStatusLabel,
+  useStudentTravelState,
+} from '@/lib/studentTravel';
 
-type AttendanceStatus = 'pending' | 'present' | 'absent' | 'late' | 'reached_school';
-type AttendanceAction = Exclude<AttendanceStatus, 'pending'>;
-type AttendanceView = 'class' | 'out';
-
-const btnCls = (cur: AttendanceStatus, tgt: AttendanceAction) => {
-  const base = 'px-3 py-1 rounded-lg text-label-sm font-bold transition-all border ';
-  if (cur === tgt) {
-    if (tgt === 'present') return base + 'bg-green-500 text-white border-green-500';
-    if (tgt === 'absent') return base + 'bg-error text-white border-error';
-    if (tgt === 'reached_school') return base + 'bg-blue-500 text-white border-blue-500';
-    return base + 'bg-yellow-400 text-white border-yellow-400';
-  }
-  return base + 'bg-surface-container text-on-surface-variant border-outline-variant hover:bg-surface-container-high';
-};
-
-const ATTENDANCE_LOCK_KEY = 'safereach_teacher_attendance_submitted_locks';
-const ATTENDANCE_LOCK_DAY_KEY = 'safereach_teacher_attendance_lock_day';
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-
-function attendanceDayKey() {
-  const now = new Date();
-  const reset = new Date(now);
-  reset.setHours(8, 0, 0, 0);
-  if (now < reset) reset.setDate(reset.getDate() - 1);
-  return reset.toISOString().slice(0, 10);
-}
-
-function readSubmittedLocks() {
-  if (typeof window === 'undefined') return [];
-  const currentDay = attendanceDayKey();
-  const storedDay = window.localStorage.getItem(ATTENDANCE_LOCK_DAY_KEY);
-  if (storedDay !== currentDay) {
-    window.localStorage.setItem(ATTENDANCE_LOCK_DAY_KEY, currentDay);
-    window.localStorage.setItem(ATTENDANCE_LOCK_KEY, JSON.stringify([]));
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(ATTENDANCE_LOCK_KEY) ?? '[]') as string[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function updatedAtTime(value: string) {
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function morningRisk(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  if (student.status === 'to_school') {
-    const updatedTime = updatedAtTime(student.updatedAt);
-    return updatedTime && Date.now() - updatedTime > TWO_HOURS_MS ? 'overdue' : 'traveling';
-  }
-  if (student.status === 'reached_school' || student.status === 'present') return 'reached';
-  if (student.status === 'going_home' || student.status === 'reached_home') return 'leave';
-  return 'normal';
-}
-
-function morningRiskRank(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  const risk = morningRisk(student);
-  if (risk === 'overdue') return 0;
-  if (risk === 'traveling') return 1;
-  if (risk === 'reached') return 2;
-  if (risk === 'leave') return 3;
-  return 4;
-}
-
-function morningRowClass(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  // Absence stays red for visibility but is not an overdue travel event, so it
-  // remains in the normal alphabetical section instead of moving to the top.
-  if (student.status === 'absent') return 'bg-red-50 border-l-4 border-error';
-  const risk = morningRisk(student);
-  if (risk === 'overdue') return 'bg-red-50 border-l-4 border-error';
-  if (risk === 'traveling') return 'bg-yellow-50 border-l-4 border-yellow-400';
-  if (risk === 'reached') return 'bg-green-50 border-l-4 border-green-500';
-  return 'bg-white';
-}
-
-function goOutRisk(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  if (student.status === 'reached_home') return 'reached';
-  if (student.status === 'going_home') {
-    const updatedTime = updatedAtTime(student.updatedAt);
-    if (updatedTime && Date.now() - updatedTime > TWO_HOURS_MS) return 'overdue';
-    return 'traveling';
-  }
-  return 'normal';
-}
-
-function goOutRiskRank(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  const risk = goOutRisk(student);
-  if (risk === 'overdue') return 0;
-  if (risk === 'traveling') return 1;
-  if (risk === 'reached') return 2;
-  return 3;
-}
-
-function goOutRowClass(student: ReturnType<typeof useStudentTravelState>['classStudents'][number]) {
-  const risk = goOutRisk(student);
-  if (risk === 'overdue') return 'bg-red-50 border-l-4 border-error';
-  if (risk === 'traveling') return 'bg-yellow-50 border-l-4 border-yellow-400';
-  if (risk === 'reached') return 'bg-green-50 border-l-4 border-green-500';
-  return '';
-}
-
-function canSelectForLeave(student: ReturnType<typeof useStudentTravelState>['classStudents'][number], submittedIds: string[]) {
-  if (submittedIds.includes(student.id)) return false;
-  if (student.status === 'absent' || student.attendance === 'absent') return false;
-  if (student.status === 'going_home' || student.status === 'reached_home') return false;
-  return true;
-}
+type TabFilter = 'all' | 'to_school' | 'reached_school' | 'going_home' | 'reached_home';
 
 export default function TeacherAttendancePage() {
-  const { classStudents, counts, smsLogs, actions } = useStudentTravelState();
-  const [saved, setSaved] = useState(false);
-  const [submittedIds, setSubmittedIds] = useState<string[]>([]);
-  const [leaveIds, setLeaveIds] = useState<string[]>([]);
-  const [leaveSubmittedIds, setLeaveSubmittedIds] = useState<string[]>([]);
-  const [leaveSaved, setLeaveSaved] = useState(false);
-  const [lastSmsNotice, setLastSmsNotice] = useState('SMS will be sent automatically for teacher status updates.');
-  const [attendanceSearch, setAttendanceSearch] = useState('');
-  const [smsSearch, setSmsSearch] = useState('');
-  const [leaveSearch, setLeaveSearch] = useState('');
-  const [attendanceView, setAttendanceView] = useState<AttendanceView>('class');
+  const { classStudents, counts, actions } = useStudentTravelState();
+  const [activeTab, setActiveTab] = useState<TabFilter>('all');
+  const [search, setSearch] = useState('');
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [notice, setNotice] = useState('');
 
-  useEffect(() => {
-    setSubmittedIds(readSubmittedLocks());
-    setLeaveSubmittedIds(readDailyIds('safereach_teacher_leave_school'));
-    const timer = window.setInterval(() => setSubmittedIds(readSubmittedLocks()), 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  function showNotice(msg: string) {
+    setNotice(msg);
+    setTimeout(() => setNotice(''), 3500);
+  }
 
-  useEffect(() => {
-    window.localStorage.setItem(ATTENDANCE_LOCK_KEY, JSON.stringify(submittedIds));
-    window.localStorage.setItem(ATTENDANCE_LOCK_DAY_KEY, attendanceDayKey());
-  }, [submittedIds]);
+  const filteredStudents = classStudents.filter(student => {
+    // Tab filter
+    if (activeTab === 'to_school' && student.status !== 'to_school') return false;
+    if (activeTab === 'reached_school' && student.status !== 'reached_school' && student.status !== 'present') return false;
+    if (activeTab === 'going_home' && student.status !== 'going_home') return false;
+    if (activeTab === 'reached_home' && student.status !== 'reached_home') return false;
 
-  useEffect(() => {
-    writeDailyIds('safereach_teacher_leave_school', leaveSubmittedIds);
-  }, [leaveSubmittedIds]);
-
-  const matchesSearch = (student: typeof classStudents[number], search: string) => {
-    const value = search.trim().toLowerCase();
-    if (!value) return true;
+    // Search filter
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
     return [
       student.roll,
       student.name,
@@ -155,362 +40,351 @@ export default function TeacherAttendancePage() {
       student.section,
       student.parentName,
       student.parentPhone,
-      student.location,
       travelStatusLabel(student.status, 'teacher'),
-      student.absenceReason,
-    ].some(item => item.toLowerCase().includes(value));
-  };
-
-  const filteredAttendanceStudents = classStudents
-    .filter(student => matchesSearch(student, attendanceSearch))
-    .slice()
-    .sort((a, b) => {
-      const riskDiff = morningRiskRank(a) - morningRiskRank(b);
-      return riskDiff !== 0 ? riskDiff : a.name.localeCompare(b.name);
-    });
-  const filteredLeaveStudents = classStudents
-    .filter(student => student.status !== 'absent' && student.attendance !== 'absent')
-    .filter(student => matchesSearch(student, leaveSearch))
-    .slice()
-    .sort((a, b) => {
-      const riskDiff = goOutRiskRank(a) - goOutRiskRank(b);
-      return riskDiff !== 0 ? riskDiff : a.name.localeCompare(b.name);
-    });
-  const filteredSmsLogs = smsLogs.filter(log => {
-    const value = smsSearch.trim().toLowerCase();
-    if (!value) return true;
-    return [log.sentAt, log.studentName, log.parentName, log.phone, log.message].some(item => item.toLowerCase().includes(value));
+    ].some(v => v.toLowerCase().includes(q));
   });
-  const filteredLeaveIds = filteredLeaveStudents.filter(student => canSelectForLeave(student, leaveSubmittedIds)).map(student => student.id);
-  const allFilteredLeaveSelected = filteredLeaveIds.length > 0 && filteredLeaveIds.every(id => leaveIds.includes(id));
-  const submittedSet = useMemo(() => new Set(submittedIds), [submittedIds]);
 
-  function currentAttendance(studentId: string): AttendanceStatus {
-    const student = classStudents.find(item => item.id === studentId);
-    if (student?.attendance === 'absent') return 'absent';
-    if (student?.attendance === 'late') return 'late';
-    if (student?.attendance === 'present') return 'present';
-    if (student?.status === 'reached_school') return 'reached_school';
-    return 'pending';
+  // Action: Mark Reached School (Stage 2)
+  async function handleMarkReachedSchool(studentId: string, studentName: string) {
+    setActionLoadingId(studentId);
+    try {
+      await actions.markReachedSchool(studentId);
+      showNotice(`🏫 ${studentName} marked as Reached School.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActionLoadingId(null);
+    }
   }
 
-  async function mark(studentId: string, status: AttendanceAction) {
-    const student = classStudents.find(item => item.id === studentId);
-    const current = currentAttendance(studentId);
-    const isSubmitted = submittedSet.has(studentId);
-    const canUpdateSubmittedLate = isSubmitted && current === 'late' && (status === 'present' || status === 'absent');
-    if (isSubmitted && !canUpdateSubmittedLate) return;
+  // Action: Mark Out of School (Stage 3)
+  async function handleMarkOutOfSchool(studentId: string, studentName: string) {
+    setActionLoadingId(studentId);
     try {
-      if (status === 'present') await actions.markPresent(studentId);
-      if (status === 'absent') await actions.markAbsent(studentId);
-      if (status === 'late') await actions.markLate(studentId);
-      if (status === 'reached_school') await actions.markReachedSchool(studentId);
-    } catch (reason) {
-      setLastSmsNotice(reason instanceof Error ? reason.message : 'Attendance update failed.');
+      await actions.markOutOfSchool([studentId]);
+      showNotice(`🚌 ${studentName} marked as Out of School.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  // Bulk Actions
+  async function handleMarkAllArrived() {
+    const pendingArrival = classStudents
+      .filter(s => s.status === 'to_school' || s.status === 'at_home')
+      .map(s => s.id);
+    if (pendingArrival.length === 0) {
+      showNotice('All students are already marked as reached school.');
       return;
     }
-    if (student) {
-      if (status === 'absent') {
-        setLastSmsNotice(`${student.name} is marked absent. The parent message and SMS request will be sent when attendance is submitted.`);
-      } else {
-        const label = status === 'reached_school' ? 'Reached School' : status.charAt(0).toUpperCase() + status.slice(1);
-        setLastSmsNotice(`${student.name} is marked ${label}. No SMS is sent until an absence is submitted.`);
-      }
-    }
-    if (canUpdateSubmittedLate) {
-      setSubmittedIds(currentIds => currentIds.filter(id => id !== studentId));
-    }
-    setSaved(false);
-  }
-
-  async function markAll(status: AttendanceAction) {
-    await Promise.all(filteredAttendanceStudents.map(student => mark(student.id, status)));
-    setSaved(false);
-  }
-
-  function toggleLeave(studentId: string, checked: boolean) {
-    const student = classStudents.find(item => item.id === studentId);
-    if (!student || !canSelectForLeave(student, leaveSubmittedIds)) return;
-    setLeaveIds(current => checked ? [...current, studentId] : current.filter(id => id !== studentId));
-    setLeaveSaved(false);
-  }
-
-  async function submitLeave() {
-    const selectedStudents = classStudents.filter(student => leaveIds.includes(student.id));
+    setBulkLoading(true);
     try {
-      await actions.markLeavingSchool(leaveIds);
-    } catch (reason) {
-      setLastSmsNotice(reason instanceof Error ? reason.message : 'Out of school submit failed.');
+      await actions.markAllReachedSchool(pendingArrival);
+      showNotice(`✅ Marked ${pendingArrival.length} student(s) as Reached School.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Bulk action failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleMarkAllOutOfSchool() {
+    const atSchool = classStudents
+      .filter(s => s.status === 'reached_school' || s.status === 'present')
+      .map(s => s.id);
+    if (atSchool.length === 0) {
+      showNotice('No students currently in school to mark out.');
       return;
     }
-    setLeaveSubmittedIds(current => Array.from(new Set([...current, ...leaveIds])));
-    setLastSmsNotice(`${selectedStudents.length} go-out SMS ${selectedStudents.length === 1 ? 'was' : 'were'} sent to parent phones.`);
-    setLeaveIds([]);
-    setLeaveSaved(true);
-  }
-
-  function toggleAllVisibleLeave(checked: boolean) {
-    setLeaveIds(current => {
-      if (checked) return Array.from(new Set([...current, ...filteredLeaveIds.filter(id => !leaveSubmittedIds.includes(id))]));
-      return current.filter(id => !filteredLeaveIds.includes(id));
-    });
-    setLeaveSaved(false);
-  }
-
-  function isAttendanceButtonDisabled(studentId: string, target: AttendanceAction) {
-    if (!submittedSet.has(studentId)) return false;
-    const current = currentAttendance(studentId);
-    return !(current === 'late' && (target === 'present' || target === 'absent'));
-  }
-
-  async function submitAttendance() {
-    const idsToSubmit = classStudents
-      .filter(student => {
-        const current = currentAttendance(student.id);
-        return current === 'present' || current === 'absent' || current === 'late';
-      })
-      .map(student => student.id);
-    const absentStudentIds = classStudents
-      .filter(student => currentAttendance(student.id) === 'absent')
-      .map(student => student.id);
+    setBulkLoading(true);
     try {
-      const notification = await actions.notifyAbsentParents(absentStudentIds);
-      if (notification.notifications.length > 0) {
-        setLastSmsNotice(`${notification.notifications.length} absence request${notification.notifications.length === 1 ? '' : 's'} sent to parent Messages and SMS.`);
-      }
-    } catch (reason) {
-      setLastSmsNotice(reason instanceof Error ? reason.message : 'Unable to send absence requests. Attendance was not submitted.');
-      return;
+      await actions.markAllOutOfSchool(atSchool);
+      showNotice(`🚌 Marked ${atSchool.length} student(s) as Out of School.`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Bulk action failed');
+    } finally {
+      setBulkLoading(false);
     }
-    setSubmittedIds(current => Array.from(new Set([...current, ...idsToSubmit])));
-    setSaved(true);
   }
 
   return (
-    <div className="p-container-padding-mobile md:p-container-padding-desktop">
-      <div className="grid grid-cols-2 gap-3 mb-stack-lg">
-        <button
-          type="button"
-          onClick={() => setAttendanceView('class')}
-          className={`rounded-xl border px-4 py-3 text-left shadow-sm ${attendanceView === 'class' ? 'bg-primary text-on-primary border-primary' : 'bg-white text-on-surface border-outline-variant'}`}
-        >
-          <span className="material-symbols-outlined text-[20px]">how_to_reg</span>
-          <span className="block mt-1 font-bold">Class Attendance</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setAttendanceView('out')}
-          className={`rounded-xl border px-4 py-3 text-left shadow-sm ${attendanceView === 'out' ? 'bg-primary text-on-primary border-primary' : 'bg-white text-on-surface border-outline-variant'}`}
-        >
-          <span className="material-symbols-outlined text-[20px]">logout</span>
-          <span className="block mt-1 font-bold">Out of School Attendance</span>
-        </button>
-      </div>
-
-      {attendanceView === 'class' && (
-      <>
-      <div className="grid grid-cols-5 md:grid-cols-5 gap-2 md:gap-4 mb-stack-lg">
-        <div className="bg-blue-50 border border-blue-100 rounded-lg md:rounded-xl p-2 md:p-4 text-center"><p className="font-bold text-lg md:font-headline-lg md:text-headline-lg text-blue-600">{counts.toSchool}</p><p className="text-[10px] md:text-label-md leading-tight text-blue-700">Tracking<br className="md:hidden" /> to School</p></div>
-        <div className="bg-green-50 border border-green-100 rounded-lg md:rounded-xl p-2 md:p-4 text-center"><p className="font-bold text-lg md:font-headline-lg md:text-headline-lg text-green-600">{counts.present}</p><p className="text-[10px] md:text-label-md leading-tight text-green-700">Present</p></div>
-        <div className="bg-red-50 border border-red-100 rounded-lg md:rounded-xl p-2 md:p-4 text-center"><p className="font-bold text-lg md:font-headline-lg md:text-headline-lg text-error">{counts.absent}</p><p className="text-[10px] md:text-label-md leading-tight text-red-700">Absent</p></div>
-        <div className="bg-yellow-50 border border-yellow-100 rounded-lg md:rounded-xl p-2 md:p-4 text-center"><p className="font-bold text-lg md:font-headline-lg md:text-headline-lg text-yellow-600">{counts.goingHome}</p><p className="text-[10px] md:text-label-md leading-tight text-yellow-700">Tracking<br className="md:hidden" /> Home</p></div>
-        <div className="bg-primary/5 border border-primary/20 rounded-lg md:rounded-xl p-2 md:p-4 text-center"><p className="font-bold text-lg md:font-headline-lg md:text-headline-lg text-primary">{counts.reachedHome}</p><p className="text-[10px] md:text-label-md leading-tight text-primary">SafeReach<br className="md:hidden" /> Home</p></div>
-      </div>
-
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-stack-lg">
-        <label className="relative w-full md:max-w-md">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
-          <input
-            value={attendanceSearch}
-            onChange={event => setAttendanceSearch(event.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 bg-white border border-outline-variant rounded-lg text-label-md focus:ring-2 focus:ring-primary focus:outline-none"
-            placeholder="Search attendance students..."
-          />
-        </label>
-        <input type="date" defaultValue="2026-06-10" aria-label="Attendance date" className="w-full bg-white border border-outline-variant rounded-lg px-4 py-2.5 text-label-md focus:ring-2 focus:ring-primary focus:outline-none md:w-auto" />
-      </div>
-
-      <section className="bg-white rounded-xl shadow-sm border border-outline-variant/30 overflow-hidden mb-stack-lg">
-        <div className="p-stack-md border-b border-outline-variant/30 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <h2 className="font-headline-md text-headline-md text-primary">Morning Attendance and Travel Status</h2>
-            <p className="text-label-md text-on-surface-variant">Primary and assistant incharge can submit attendance. Present/Absent lock until the next 8:00 AM reset; Late can still become Present or Absent.</p>
+    <div className="p-container-padding-mobile md:p-container-padding-desktop space-y-6 max-w-7xl mx-auto">
+      {/* Notification Toast */}
+      {notice && (
+        <div className="bg-primary text-on-primary px-4 py-3 rounded-xl shadow-md font-bold flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined">notifications_active</span>
+            <span>{notice}</span>
           </div>
-          <button type="button" onClick={() => markAll('present')} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-secondary px-3 py-2 text-label-sm font-bold text-on-secondary hover:opacity-90">
-            <span className="material-symbols-outlined text-[18px]">done_all</span>
-            Mark All Present
-          </button>
+          <button onClick={() => setNotice('')} className="text-white/80 hover:text-white">✕</button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] md:min-w-[900px] text-left">
-            <thead className="bg-surface-container-low text-label-md text-on-surface-variant">
-              <tr>{['Roll', 'Student', 'Attendance', 'Travel Status'].map(head => <th key={head} className="px-4 py-3 font-bold">{head}</th>)}</tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/30">
-              {filteredAttendanceStudents.map(student => (
-                <tr key={student.id} className={morningRowClass(student)}>
-                  <td className="px-4 py-3 text-label-sm text-on-surface-variant">{student.roll}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-primary font-bold text-label-md shrink-0">{student.avatar}</div>
-                      <div>
-                        <p className="font-bold text-on-surface">{student.name}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {([
-                        ['present', 'P', 'Mark present'],
-                        ['absent', 'A', 'Mark absent; request sent on Submit'],
-                        ['late', 'L', 'Mark late'],
-                      ] as const).map(([status, label, title]) => {
-                        const disabled = isAttendanceButtonDisabled(student.id, status);
-                        return (
-                          <button
-                            key={status}
-                            title={disabled ? 'Submitted attendance is locked. Late students may still be changed to Present or Absent.' : title}
-                            disabled={disabled}
-                            onClick={() => mark(student.id, status)}
-                            className={`${btnCls(currentAttendance(student.id), status)} ${disabled ? 'opacity-45 cursor-not-allowed hover:bg-surface-container' : ''}`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`${travelStatusClass(student.status)} px-3 py-1 rounded-full text-label-sm font-bold inline-flex items-center gap-1`}>
-                      <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(student.status)}</span>
-                      {travelStatusLabel(student.status, 'teacher')}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {filteredAttendanceStudents.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-6 text-center text-on-surface-variant">No attendance students match this search.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-outline-variant/30 p-stack-md">
-          {saved && <span className="flex items-center gap-1 text-green-600 text-label-md"><span className="material-symbols-outlined text-[18px]">check_circle</span>Attendance submitted.</span>}
-          <button onClick={submitAttendance} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary shadow-sm transition-colors hover:bg-primary-container"><span className="material-symbols-outlined text-[18px]">save</span>Submit</button>
-        </div>
-      </section>
-      </>
       )}
 
-      {attendanceView === 'out' && (
-      <section className="bg-white rounded-xl shadow-sm border border-outline-variant/30 overflow-hidden mb-stack-lg">
-        <div className="p-stack-md border-b border-outline-variant/30">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div>
-              <h2 className="font-headline-md text-headline-md text-primary">Out of School Attendance</h2>
-              <p className="text-label-md text-on-surface-variant">Select students leaving school and submit. Parent cards will show Going Home and enable Reached Home confirmation.</p>
-            </div>
-            <label className="relative w-full lg:w-80">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
-              <input
-                value={leaveSearch}
-                onChange={event => setLeaveSearch(event.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 bg-surface-container border border-outline-variant rounded-lg text-label-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="Search out of school students..."
-              />
-            </label>
-          </div>
-          <label className="mt-4 inline-flex items-center gap-3 rounded-lg bg-primary/5 border border-primary/15 px-4 py-2 text-primary font-bold cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allFilteredLeaveSelected}
-              onChange={event => toggleAllVisibleLeave(event.target.checked)}
-              className="w-5 h-5 rounded text-primary"
-            />
-            Select all visible students ({filteredLeaveStudents.length})
-          </label>
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-headline-lg font-headline-lg text-primary">Student Travel & Presence Tracker</h1>
+          <p className="text-label-md text-on-surface-variant">
+            Live 4-Stage tracking: Departed Home ➡️ Reached School ➡️ Out of School ➡️ Reached Home
+          </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={bulkLoading}
+            onClick={handleMarkAllArrived}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[18px]">done_all</span>
+            Mark All Arrived
+          </button>
+          <button
+            type="button"
+            disabled={bulkLoading}
+            onClick={handleMarkAllOutOfSchool}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+            Mark All Out of School
+          </button>
+        </div>
+      </div>
+
+      {/* 4-Stage Overview Counter Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab(activeTab === 'to_school' ? 'all' : 'to_school')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'to_school'
+              ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/20 shadow-sm'
+              : 'bg-surface-container-lowest border-outline-variant/40 hover:bg-amber-50/50'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center material-symbols-outlined">
+              directions_walk
+            </span>
+            <span className="text-headline-md font-headline-md text-amber-800">{counts.toSchool}</span>
+          </div>
+          <p className="font-bold text-on-surface text-body-sm">1. Departed Home</p>
+          <p className="text-label-sm text-on-surface-variant">On travel to school</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab(activeTab === 'reached_school' ? 'all' : 'reached_school')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'reached_school'
+              ? 'bg-emerald-500/10 border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm'
+              : 'bg-surface-container-lowest border-outline-variant/40 hover:bg-emerald-50/50'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center material-symbols-outlined">
+              school
+            </span>
+            <span className="text-headline-md font-headline-md text-emerald-800">{counts.present}</span>
+          </div>
+          <p className="font-bold text-on-surface text-body-sm">2. Reached School</p>
+          <p className="text-label-sm text-on-surface-variant">At school campus</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab(activeTab === 'going_home' ? 'all' : 'going_home')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'going_home'
+              ? 'bg-sky-500/10 border-sky-500 ring-2 ring-sky-500/20 shadow-sm'
+              : 'bg-surface-container-lowest border-outline-variant/40 hover:bg-sky-50/50'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="w-10 h-10 rounded-xl bg-sky-100 text-sky-800 flex items-center justify-center material-symbols-outlined">
+              directions_bus
+            </span>
+            <span className="text-headline-md font-headline-md text-sky-800">{counts.goingHome}</span>
+          </div>
+          <p className="font-bold text-on-surface text-body-sm">3. Out of School</p>
+          <p className="text-label-sm text-on-surface-variant">On travel home</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab(activeTab === 'reached_home' ? 'all' : 'reached_home')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'reached_home'
+              ? 'bg-primary/10 border-primary ring-2 ring-primary/20 shadow-sm'
+              : 'bg-surface-container-lowest border-outline-variant/40 hover:bg-primary/5'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="w-10 h-10 rounded-xl bg-primary-container text-primary flex items-center justify-center material-symbols-outlined">
+              home_pin
+            </span>
+            <span className="text-headline-md font-headline-md text-primary">{counts.reachedHome}</span>
+          </div>
+          <p className="font-bold text-on-surface text-body-sm">4. Reached Home</p>
+          <p className="text-label-sm text-on-surface-variant">Parent confirmed safe</p>
+        </button>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/40 shadow-sm">
+        <div className="relative w-full sm:max-w-md">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search students by roll, name, or parent..."
+            className="w-full pl-10 pr-4 py-2.5 bg-surface rounded-xl border border-outline-variant text-label-md focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {[
+            { key: 'all', label: 'All Students', count: classStudents.length },
+            { key: 'to_school', label: 'On Travel', count: counts.toSchool },
+            { key: 'reached_school', label: 'In School', count: counts.present },
+            { key: 'going_home', label: 'Out of School', count: counts.goingHome },
+            { key: 'reached_home', label: 'Safe at Home', count: counts.reachedHome },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as TabFilter)}
+              className={`px-3 py-1.5 rounded-lg text-label-sm font-bold shrink-0 transition-all ${
+                activeTab === tab.key
+                  ? 'bg-primary text-on-primary shadow-sm'
+                  : 'bg-surface hover:bg-surface-container text-on-surface-variant border border-outline-variant/50'
+              }`}
+            >
+              {tab.label} ({tab.count})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Student Travel Table */}
+      <section className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/40 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left">
-            <thead className="bg-surface-container-low text-label-md text-on-surface-variant">
+          <table className="w-full min-w-[760px] text-left">
+            <thead className="bg-surface-container text-label-sm font-bold text-on-surface-variant uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 w-16">Select</th>
-                <th className="px-4 py-3">Student</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-5 py-3.5 w-16">Roll</th>
+                <th className="px-5 py-3.5">Student</th>
+                <th className="px-5 py-3.5">Current Stage</th>
+                <th className="px-5 py-3.5 text-center">Stage 2: Arrival</th>
+                <th className="px-5 py-3.5 text-center">Stage 3: Departure</th>
+                <th className="px-5 py-3.5 text-right">Stage 4: Home Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20">
-              {filteredLeaveStudents.map(student => {
+              {filteredStudents.map(student => {
+                const isLoading = actionLoadingId === student.id;
+                const isAtSchool = student.status === 'reached_school' || student.status === 'present';
+                const isOut = student.status === 'going_home';
+                const isHome = student.status === 'reached_home';
+                const isDepartedFromHome = student.status === 'to_school';
+
                 return (
-                  <tr key={student.id} className={`hover:bg-surface-container-low ${goOutRowClass(student)}`}>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={leaveIds.includes(student.id)}
-                        disabled={!canSelectForLeave(student, leaveSubmittedIds)}
-                        onChange={event => toggleLeave(student.id, event.target.checked)}
-                        className="w-5 h-5 rounded text-primary disabled:opacity-40"
-                        aria-label={`Select ${student.name} for out of school attendance`}
-                      />
+                  <tr key={student.id} className="hover:bg-surface-container-low transition-colors">
+                    <td className="px-5 py-4 font-bold text-on-surface-variant text-label-md">{student.roll}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-sm shrink-0">
+                          {student.avatar || student.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-bold text-on-surface text-body-md">{student.name}</p>
+                          <p className="text-label-sm text-on-surface-variant">{student.parentName} • {student.parentPhone}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-4 py-3 font-bold text-on-surface">{student.name}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`${travelStatusClass(student.status)} px-2 md:px-3 py-1 rounded-full text-[11px] md:text-label-sm font-bold shrink-0`}>{travelStatusLabel(student.status, 'teacher')}</span>
-                    </div>
+
+                    {/* Current Stage Badge */}
+                    <td className="px-5 py-4">
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-label-sm font-bold border ${travelStatusClass(student.status)}`}>
+                        <span className="material-symbols-outlined text-[16px]">{travelStatusIcon(student.status)}</span>
+                        {travelStatusLabel(student.status, 'teacher')}
+                      </span>
+                      {student.updatedAt && (
+                        <p className="text-[11px] text-on-surface-variant mt-1 pl-1">{student.updatedAt}</p>
+                      )}
+                    </td>
+
+                    {/* Stage 2 Action: Mark Reached School */}
+                    <td className="px-5 py-4 text-center">
+                      {isAtSchool ? (
+                        <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-label-sm border border-emerald-200">
+                          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                          In School
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isLoading || isOut || isHome}
+                          onClick={() => handleMarkReachedSchool(student.id, student.name)}
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-label-sm transition-all shadow-sm ${
+                            isDepartedFromHome
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-700 animate-pulse'
+                              : 'bg-surface-container-high text-on-surface-variant hover:bg-emerald-600 hover:text-white border border-outline-variant'
+                          } disabled:opacity-40 disabled:pointer-events-none`}
+                        >
+                          {isLoading ? 'Saving...' : 'Mark Reached'}
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Stage 3 Action: Mark Out of School */}
+                    <td className="px-5 py-4 text-center">
+                      {isOut ? (
+                        <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-700 font-bold text-label-sm border border-sky-200">
+                          <span className="material-symbols-outlined text-[16px]">directions_bus</span>
+                          Out of School
+                        </span>
+                      ) : isHome ? (
+                        <span className="text-label-sm text-on-surface-variant/60 font-medium">Completed</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isLoading || !isAtSchool}
+                          onClick={() => handleMarkOutOfSchool(student.id, student.name)}
+                          className="px-3.5 py-1.5 rounded-xl font-bold text-label-sm bg-surface-container-high text-on-surface-variant hover:bg-sky-600 hover:text-white border border-outline-variant transition-all shadow-sm disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          {isLoading ? 'Saving...' : 'Mark Out'}
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Stage 4: Parent Reached Home Confirmation */}
+                    <td className="px-5 py-4 text-right">
+                      {isHome ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-800 font-bold text-label-sm border border-emerald-300">
+                          <span className="material-symbols-outlined text-[16px]">home_pin</span>
+                          Safe at Home
+                        </span>
+                      ) : isOut ? (
+                        <span className="text-label-sm text-amber-700 font-bold animate-pulse">
+                          Awaiting Parent...
+                        </span>
+                      ) : (
+                        <span className="text-label-sm text-on-surface-variant/50">—</span>
+                      )}
                     </td>
                   </tr>
                 );
               })}
-              {filteredLeaveStudents.length === 0 && (
-                <tr><td colSpan={3} className="px-4 py-6 text-center text-on-surface-variant">No go out students match this search.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-stack-md flex justify-end gap-3 border-t border-outline-variant/30">
-          {leaveSaved && <span className="flex items-center gap-1 text-green-600 text-label-md"><span className="material-symbols-outlined text-[18px]">check_circle</span>Out of school attendance submitted.</span>}
-          <button onClick={submitLeave} disabled={leaveIds.length === 0} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-label-md shadow-sm ${leaveIds.length > 0 ? 'bg-secondary text-on-secondary hover:opacity-90' : 'bg-surface-container text-on-surface-variant cursor-not-allowed'}`}>
-            <span className="material-symbols-outlined text-[18px]">logout</span>
-            Submit Leave School
-          </button>
-        </div>
-      </section>
-      )}
 
-      <section className="hidden bg-white rounded-xl shadow-sm border border-outline-variant/30 overflow-hidden mb-stack-lg">
-        <div className="p-stack-md border-b border-outline-variant/30 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <h2 className="font-headline-md text-headline-md text-primary">Recent Parent SMS Log</h2>
-            <p className="text-label-md text-on-surface-variant">Frontend-only SMS records generated by teacher status updates.</p>
-          </div>
-          <label className="relative w-full lg:w-80">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
-            <input
-              value={smsSearch}
-              onChange={event => setSmsSearch(event.target.value)}
-              className="w-full pl-10 pr-3 py-2.5 bg-surface-container border border-outline-variant rounded-lg text-label-md focus:ring-2 focus:ring-primary focus:outline-none"
-              placeholder="Search SMS logs..."
-            />
-          </label>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left">
-            <thead className="bg-surface-container-low text-label-md text-on-surface-variant">
-              <tr>{['Time', 'Student', 'Parent', 'Phone', 'SMS Message'].map(head => <th key={head} className="px-4 py-3 font-bold">{head}</th>)}</tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/30">
-              {filteredSmsLogs.slice(0, 8).map(log => (
-                <tr key={log.id}>
-                  <td className="px-4 py-3 text-label-sm text-on-surface-variant">{log.sentAt}</td>
-                  <td className="px-4 py-3 font-bold text-on-surface">{log.studentName}</td>
-                  <td className="px-4 py-3 text-label-md">{log.parentName}</td>
-                  <td className="px-4 py-3 text-label-md">{log.phone}</td>
-                  <td className="px-4 py-3 text-label-md">{log.message}</td>
+              {filteredStudents.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-on-surface-variant">
+                    No students match your filter or search query.
+                  </td>
                 </tr>
-              ))}
-              {filteredSmsLogs.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-on-surface-variant">{smsLogs.length === 0 ? 'No SMS records yet. Mark a student status to create the first parent SMS.' : 'No SMS logs match this search.'}</td></tr>
               )}
             </tbody>
           </table>
@@ -519,3 +393,4 @@ export default function TeacherAttendancePage() {
     </div>
   );
 }
+

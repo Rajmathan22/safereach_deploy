@@ -23,7 +23,7 @@ const titleMap: Record<string, { title: string; sub: string }> = {
   '/teacher/students': { title: 'My Students', sub: 'Student records and live tracking status' },
   '/teacher/students/add': { title: 'Add Student', sub: 'Create a new assigned class student record' },
   '/teacher/students/edit': { title: 'Edit Student', sub: 'Update assigned class student details' },
-  '/teacher/attendance': { title: 'Attendance', sub: 'Mark and track daily attendance' },
+  '/teacher/attendance': { title: 'Travel & Presence Tracker', sub: '4-Stage live presence: Departed Home ➔ Reached School ➔ Out of School ➔ Reached Home' },
   '/teacher/messages': { title: 'Messages', sub: 'Communicate with parents and staff' },
   '/teacher/reports': { title: 'Reports', sub: 'File incidents and view class reports' },
   '/teacher/results': { title: 'Results', sub: 'Enter assigned class assessment marks' },

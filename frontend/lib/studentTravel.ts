@@ -15,8 +15,8 @@ export type StudentTravelStatus =
   | 'going_home'
   | 'reached_home';
 
-export type AttendanceMark = 'pending' | 'present' | 'absent' | 'late';
-export type TeacherSmsStatus = 'present' | 'absent' | 'late' | 'reached_school' | 'going_home' | 'reached_home';
+export type AttendanceMark = 'pending' | 'present' | 'absent' | 'late' | 'reached_school' | 'going_home' | 'reached_home';
+export type TeacherSmsStatus = 'reached_school' | 'going_home' | 'reached_home' | 'to_school' | 'present' | 'absent' | 'late';
 
 export type StudentSmsLog = {
   id: string;
@@ -64,8 +64,20 @@ export const TRAVEL_STORAGE_KEY = 'safereach_student_travel_attendance';
 export const DB3_REALTIME_STORAGE_KEY = 'safereach_db3_realtime_events';
 const TRAVEL_EVENT = 'safereach-travel-state-updated';
 
-const nowLabel = () => new Date().toLocaleString();
+const nowLabel = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 let backendBaseRecords: StudentTravelRecord[] = [];
+
+export function getTravelStage(status: StudentTravelStatus): number {
+  switch (status) {
+    case 'at_home': return 0;
+    case 'to_school': return 1;
+    case 'reached_school':
+    case 'present': return 2;
+    case 'going_home': return 3;
+    case 'reached_home': return 4;
+    default: return 0;
+  }
+}
 
 export const seedTravelRecords: StudentTravelRecord[] = [
   {
@@ -73,10 +85,10 @@ export const seedTravelRecords: StudentTravelRecord[] = [
     name: 'Leo Thompson',
     roll: '01',
     className: 'Class 4',
-    section: 'B',
+    section: 'A',
     parentName: 'Sarah Thompson',
-    parentPhone: '+1 (555) 100-2101',
-    teacherName: 'Mr. James Anderson',
+    parentPhone: '+91 98765 22221',
+    teacherName: 'Sarah Jenkins',
     avatar: 'LT',
     location: 'Home',
     isParentChild: true,
@@ -93,53 +105,13 @@ export const seedTravelRecords: StudentTravelRecord[] = [
     name: 'Maya Thompson',
     roll: '02',
     className: 'Class 4',
-    section: 'B',
+    section: 'A',
     parentName: 'Sarah Thompson',
-    parentPhone: '+1 (555) 100-2101',
-    teacherName: 'Mr. James Anderson',
+    parentPhone: '+91 98765 22221',
+    teacherName: 'Sarah Jenkins',
     avatar: 'MT',
     location: 'Home',
     isParentChild: true,
-    status: 'at_home',
-    attendance: 'pending',
-    absenceReason: '',
-    absenceReasonRequested: false,
-    absenceSmsSentAt: '',
-    smsHistory: [],
-    updatedAt: 'Demo start',
-  },
-  {
-    id: 'st-aarav-sharma',
-    name: 'Aarav Sharma',
-    roll: '03',
-    className: 'Class 4',
-    section: 'B',
-    parentName: 'Nisha Sharma',
-    parentPhone: '+1 (555) 100-2102',
-    teacherName: 'Mr. James Anderson',
-    avatar: 'AS',
-    location: 'Home',
-    isParentChild: false,
-    status: 'at_home',
-    attendance: 'pending',
-    absenceReason: '',
-    absenceReasonRequested: false,
-    absenceSmsSentAt: '',
-    smsHistory: [],
-    updatedAt: 'Demo start',
-  },
-  {
-    id: 'st-ananya-patel',
-    name: 'Ananya Patel',
-    roll: '04',
-    className: 'Class 4',
-    section: 'B',
-    parentName: 'Ravi Patel',
-    parentPhone: '+1 (555) 100-2103',
-    teacherName: 'Mr. James Anderson',
-    avatar: 'AP',
-    location: 'Home',
-    isParentChild: false,
     status: 'at_home',
     attendance: 'pending',
     absenceReason: '',
@@ -498,19 +470,23 @@ function persistAndReturn(records: StudentTravelRecord[]) {
 }
 
 export function travelStatusLabel(status: StudentTravelStatus, audience: 'parent' | 'teacher' = 'parent') {
-  if (audience === 'teacher' && status === 'present') return 'Present';
-  if (audience === 'parent' && (status === 'present' || status === 'reached_school' || status === 'reached_home')) return 'SafeReach';
-  if (audience === 'teacher' && status === 'reached_home') return 'SafeReach';
+  if (audience === 'parent') {
+    if (status === 'at_home') return 'At Home';
+    if (status === 'to_school') return 'Departed Home (On Travel)';
+    if (status === 'reached_school' || status === 'present') return 'Reached School Safely';
+    if (status === 'going_home') return 'Out of School (Going Home)';
+    if (status === 'reached_home') return 'Safe at Home';
+  }
   const labels: Record<StudentTravelStatus, string> = {
     at_home: 'At Home',
-    to_school: 'Tracking to School',
+    to_school: 'On Travel to School',
     reached_school: 'Reached School',
     present: 'Reached School',
-    absent: 'Absent',
-    going_home: 'Tracking to Home',
+    absent: 'Not Arrived',
+    going_home: 'Out of School',
     reached_home: 'Reached Home',
   };
-  return labels[status];
+  return labels[status] || 'At Home';
 }
 
 export function travelStatusIcon(status: StudentTravelStatus) {
@@ -518,25 +494,25 @@ export function travelStatusIcon(status: StudentTravelStatus) {
     at_home: 'home',
     to_school: 'directions_walk',
     reached_school: 'school',
-    present: 'task_alt',
-    absent: 'sms_failed',
+    present: 'school',
+    absent: 'help_outline',
     going_home: 'directions_bus',
     reached_home: 'home_pin',
   };
-  return icons[status];
+  return icons[status] || 'home';
 }
 
 export function travelStatusClass(status: StudentTravelStatus) {
   const classes: Record<StudentTravelStatus, string> = {
-    at_home: 'bg-surface-container text-on-surface-variant',
-    to_school: 'bg-yellow-100 text-yellow-700',
-    reached_school: 'bg-green-100 text-green-700',
-    present: 'bg-green-100 text-green-700',
-    absent: 'bg-error-container text-error',
-    going_home: 'bg-yellow-100 text-yellow-700',
-    reached_home: 'bg-green-100 text-green-700',
+    at_home: 'bg-surface-container text-on-surface-variant border-outline-variant/50',
+    to_school: 'bg-amber-100 text-amber-800 border-amber-300 font-bold',
+    reached_school: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+    present: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+    absent: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+    going_home: 'bg-sky-100 text-sky-800 border-sky-300 font-bold',
+    reached_home: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
   };
-  return classes[status];
+  return classes[status] || 'bg-surface-container text-on-surface-variant';
 }
 
 export function useStudentTravelState() {
@@ -603,105 +579,156 @@ export function useStudentTravelState() {
   }, [backend.students, commitRecords]);
 
   const actions = useMemo(() => ({
-    async readyToSend(studentId: string) {
+    // Stage 1 (Parent): Mark Departed from Home
+    async markDepartedHome(studentId: string) {
       commitRecords(current => applyLocalTravelPatch(current, studentId, {
         status: 'to_school',
-        attendance: 'pending',
+        attendance: 'to_school',
         absenceReason: '',
         absenceReasonRequested: false,
         absenceSmsSentAt: '',
       }));
       const requestPayload = { studentId, actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('student.ready_to_school', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/ready-to-school`, {
+      const payload = await realtimeRequest<BackendTravelPayload>('student.ready_to_school', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/depart-home`, {
         method: 'POST',
         body: JSON.stringify({ actorUserId: null }),
       });
       const existingRecord = recordsRef.current.find(item => item.id === studentId);
       commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
           record.id === studentId
-            ? { ...record, attendance: 'pending', absenceReason: '', absenceReasonRequested: false, absenceSmsSentAt: '' }
+            ? { ...record, status: 'to_school', attendance: 'to_school' }
             : record
       ));
-      const record = existingRecord ? { ...existingRecord, status: 'to_school' as const } : recordsRef.current.find(item => item.id === studentId);
-      if (record) {
-        appendDb3RealtimeEvent(record, {
+      if (existingRecord) {
+        appendDb3RealtimeEvent(existingRecord, {
           table: 'parent_events',
           actor: 'parent',
-          event: 'Ready to Send',
+          event: 'Departed from Home',
           status: 'to_school',
-          detail: `${record.name} is now Tracking to School.`,
-        });
-        appendDb3RealtimeEvent(record, {
-          table: 'students_status',
-          actor: 'system',
-          event: 'Student travel status update',
-          status: 'to_school',
-          detail: 'Parent started school trip tracking.',
+          detail: `${existingRecord.name} has departed from home and is on travel to school.`,
         });
       }
     },
-    async markPresent(studentId: string) {
-      commitRecords(current => applyLocalTravelPatch(current, studentId, {
-        status: 'present',
-        attendance: 'present',
-        absenceReasonRequested: false,
-      }));
-      const requestPayload = { studentId, status: 'present', actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('attendance.submit', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/attendance`, {
-        method: 'POST',
-        body: JSON.stringify({ status: 'present', actorUserId: null }),
-      });
-      commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
-        record.id === studentId ? { ...record, absenceReasonRequested: false } : record
-      ));
+    // Alias for backward compatibility
+    async readyToSend(studentId: string) {
+      return this.markDepartedHome(studentId);
     },
-    async markLate(studentId: string) {
-      commitRecords(current => applyLocalTravelPatch(current, studentId, {
-        status: 'reached_school',
-        attendance: 'late',
-        absenceReasonRequested: false,
-      }));
-      const requestPayload = { studentId, status: 'late', actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('attendance.submit', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/attendance`, {
-        method: 'POST',
-        body: JSON.stringify({ status: 'late', actorUserId: null }),
-      });
-      commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
-        record.id === studentId ? { ...record, absenceReasonRequested: false } : record
-      ));
-    },
+
+    // Stage 2 (Teacher): Mark Reached School
     async markReachedSchool(studentId: string) {
       commitRecords(current => applyLocalTravelPatch(current, studentId, {
-        status: 'present',
-        attendance: 'present',
-        absenceReasonRequested: false,
+        status: 'reached_school',
+        attendance: 'reached_school',
       }));
-      const requestPayload = { studentId, status: 'present', actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('attendance.submit', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/attendance`, {
+      const requestPayload = { studentId, actorUserId: null };
+      const payload = await realtimeRequest<BackendTravelPayload>('student.reached_school', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/reached-school`, {
         method: 'POST',
-        body: JSON.stringify({ status: 'present', actorUserId: null }),
+        body: JSON.stringify({ actorUserId: null }),
       });
       commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
-        record.id === studentId ? { ...record, absenceReasonRequested: false } : record
+        record.id === studentId ? { ...record, status: 'reached_school', attendance: 'reached_school' } : record
       ));
+      const existingRecord = recordsRef.current.find(item => item.id === studentId);
+      if (existingRecord) {
+        appendDb3RealtimeEvent(existingRecord, {
+          table: 'teacher_events',
+          actor: 'teacher',
+          event: 'Reached School',
+          status: 'reached_school',
+          detail: `${existingRecord.name} has safely arrived at school.`,
+        });
+      }
+    },
+    async markAllReachedSchool(studentIds?: string[]) {
+      const targetIds = studentIds ?? recordsRef.current.map(s => s.id);
+      await Promise.all(targetIds.map(id => this.markReachedSchool(id)));
+    },
+    async markPresent(studentId: string) {
+      return this.markReachedSchool(studentId);
+    },
+    async markLate(studentId: string) {
+      return this.markReachedSchool(studentId);
     },
     async markAbsent(studentId: string) {
       commitRecords(current => applyLocalTravelPatch(current, studentId, {
-        status: 'absent',
-        attendance: 'absent',
-        absenceReason: '',
-        absenceReasonRequested: false,
-        absenceSmsSentAt: '',
+        status: 'at_home',
+        attendance: 'at_home',
       }));
-      const requestPayload = { studentId, status: 'absent', actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('attendance.submit', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/attendance`, {
-        method: 'POST',
-        body: JSON.stringify({ status: 'absent', actorUserId: null }),
-      });
-      commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
-        record.id === studentId ? { ...record, absenceReasonRequested: false, absenceSmsSentAt: '' } : record
-      ));
     },
+
+    // Stage 3 (Teacher): Mark Out of School (Going Home)
+    async markOutOfSchool(studentIds: string[]) {
+      commitRecords(current => applyLocalTravelPatchMany(current, studentIds, {
+        status: 'going_home',
+        attendance: 'going_home',
+      }));
+      const requestPayload = { studentIds, actorUserId: null };
+      const payload = await realtimeRequest<{ ok: boolean; records: BackendTravelPayload[] }>('travel.go_out', requestPayload, '/student-travel/out-of-school', {
+        method: 'POST',
+        body: JSON.stringify({ studentIds, actorUserId: null }),
+      });
+      commitRecords(current => payload.records.reduce((next, recordPayload) => applyBackendTravelPayload(next, recordPayload), current));
+      studentIds.forEach(id => {
+        const student = recordsRef.current.find(s => s.id === id);
+        if (student) {
+          appendDb3RealtimeEvent(student, {
+            table: 'teacher_events',
+            actor: 'teacher',
+            event: 'Out of School',
+            status: 'going_home',
+            detail: `${student.name} is dismissed and on travel home.`,
+          });
+        }
+      });
+    },
+    async markLeavingSchool(studentIds: string[]) {
+      return this.markOutOfSchool(studentIds);
+    },
+    async markAllOutOfSchool(studentIds?: string[]) {
+      const targetIds = studentIds ?? recordsRef.current.filter(s => s.status === 'reached_school' || s.status === 'present').map(s => s.id);
+      if (targetIds.length > 0) {
+        await this.markOutOfSchool(targetIds);
+      }
+    },
+
+    // Stage 4 (Parent): Confirm Reached Home
+    async markReachedHome(studentId: string) {
+      commitRecords(current => applyLocalTravelPatch(current, studentId, {
+        status: 'reached_home',
+        attendance: 'reached_home',
+      }));
+      const requestPayload = { studentId, actorUserId: null };
+      const payload = await realtimeRequest<BackendTravelPayload>('parent.reached_home', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/reached-home`, {
+        method: 'POST',
+        body: JSON.stringify({ actorUserId: null }),
+      });
+      commitRecords(current => applyBackendTravelPayload(current, payload));
+      const student = recordsRef.current.find(s => s.id === studentId);
+      if (student) {
+        appendDb3RealtimeEvent(student, {
+          table: 'parent_events',
+          actor: 'parent',
+          event: 'Reached Home',
+          status: 'reached_home',
+          detail: `${student.name} has safely reached home.`,
+        });
+      }
+    },
+
+    // Reset Day Flow for demo / testing
+    resetDayFlow() {
+      commitRecords(current => current.map(record => ({
+        ...record,
+        status: 'at_home' as const,
+        attendance: 'pending' as const,
+        location: 'Home',
+        updatedAt: nowLabel(),
+      })));
+    },
+    resetDemo() {
+      this.resetDayFlow();
+    },
+
     async submitAbsenceReason(studentId: string, reason: string) {
       const cleanReason = reason.trim();
       const payload = await realtimeRequest<AbsenceReasonPayload, AbsenceReasonPayload>(
@@ -741,34 +768,8 @@ export function useStudentTravelState() {
       }
       return payload;
     },
-    async markLeavingSchool(studentIds: string[]) {
-      commitRecords(current => applyLocalTravelPatchMany(current, studentIds, {
-        status: 'going_home',
-      }));
-      const requestPayload = { studentIds, actorUserId: null };
-      const payload = await realtimeRequest<{ ok: boolean; records: BackendTravelPayload[] }>('travel.go_out', requestPayload, '/student-travel/go-out', {
-        method: 'POST',
-        body: JSON.stringify({ studentIds, actorUserId: null }),
-      });
-      commitRecords(current => payload.records.reduce((next, recordPayload) => applyBackendTravelPayload(next, recordPayload), current));
-    },
-    async markReachedHome(studentId: string) {
-      commitRecords(current => applyLocalTravelPatch(current, studentId, {
-        status: 'reached_home',
-      }));
-      const requestPayload = { studentId, actorUserId: null };
-      const payload = await realtimeRequest<BackendTravelPayload>('parent.reached_home', requestPayload, `/student-travel/${encodeURIComponent(studentId)}/reached-home`, {
-        method: 'POST',
-        body: JSON.stringify({ actorUserId: null }),
-      });
-      commitRecords(current => applyBackendTravelPayload(current, payload));
-    },
     sendStatusSms(studentId: string, status: TeacherSmsStatus) {
       setRecords(updateOneWithSms(studentId, status, {}));
-    },
-    resetDemo() {
-      writeTravelRecords(backendBaseRecords);
-      setRecords(backendBaseRecords);
     },
   }), [commitRecords]);
 
