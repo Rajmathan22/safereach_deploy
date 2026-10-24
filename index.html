@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SafeReach</title>
+    <meta name="description" content="Smart Student Safety Tracking System" />
+    <link rel="icon" type="image/png" href="/safereach_deploy/logo.png" />
+    <link rel="apple-touch-icon" href="/safereach_deploy/logo.png" />
+    <script>
+      (function () {
+        function text(value) {
+          if (!value) return "";
+          if (value.message) return String(value.message);
+          return String(value);
+        }
+
+        function isMetaMaskError(eventOrReason) {
+          var message = text(eventOrReason && (eventOrReason.error || eventOrReason.reason || eventOrReason.message || eventOrReason));
+          var filename = String((eventOrReason && eventOrReason.filename) || "");
+          return message.indexOf("Failed to connect to MetaMask") !== -1 ||
+            filename.indexOf("chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/") === 0;
+        }
+
+        window.addEventListener("error", function (event) {
+          if (isMetaMaskError(event)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener("unhandledrejection", function (event) {
+          if (isMetaMaskError(event)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
+    <script type="module" crossorigin src="/safereach_deploy/assets/index-C-obXWZw.js"></script>
+    <link rel="stylesheet" crossorigin href="/safereach_deploy/assets/index-4pZOk2zz.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
