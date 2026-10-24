@@ -17,6 +17,30 @@ try {
 
     echo "Applying schema.sql...\n";
     $sql = file_get_contents($schemaFile);
+
+    // schema.sql endswith plain CREATE INDEX statements and MySQL has no
+    // CREATE INDEX IF NOT EXISTS form, so re-running schema.sql on an existing
+    // database aborts with SQLSTATE 42000 / 1061 Duplicate key name. Drop the
+    // statements whose index is already there; missing ones still run (and any
+    // other schema error still fails loudly below).
+    $sql = preg_replace_callback(
+        '/^CREATE\s+INDEX\s+`?(\w+)`?\s+ON\s+`?(\w+)`?[^\n]*;[ \t]*\r?$/mi',
+        function ($match) use ($pdo) {
+            [, $index, $table] = $match;
+            $check = $pdo->prepare(
+                'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?'
+            );
+            $check->execute([$table, $index]);
+            if ($check->fetchColumn()) {
+                echo "✔ index {$index} already present.\n";
+                return "-- skipped existing index {$index}";
+            }
+            echo "Creating index {$index}...\n";
+            return $match[0];
+        },
+        $sql
+    );
+
     $pdo->exec($sql);
     echo "✅ Schema applied successfully.\n";
 
