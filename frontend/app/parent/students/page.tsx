@@ -9,9 +9,12 @@ import {
   travelStatusIcon,
   travelStatusLabel,
 } from '@/lib/studentTravel';
+import { institutionWording } from '@/lib/institutionType';
 
 export default function ParentStudentsPage() {
   const { children, activeChild, activeChildId, selectChild, actions } = useParentActiveChild();
+  const { institutionType } = useStudentTravelState();
+  const w = institutionWording(institutionType);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
 
@@ -24,7 +27,7 @@ export default function ParentStudentsPage() {
     setActionLoading(studentId);
     try {
       await actions.readyToSend(studentId);
-      showToast(`🎉 Trip started! ${name} is now Tracking to School.`);
+      showToast(`🎉 Trip started! ${name} is now ${w.trackingTo}.`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to start trip');
     } finally {
@@ -107,7 +110,7 @@ export default function ParentStudentsPage() {
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm ${travelStatusClass(child.status)}`}>
                           <span className="material-symbols-outlined text-[15px]">{travelStatusIcon(child.status)}</span>
-                          {travelStatusLabel(child.status, 'parent')}
+                          {travelStatusLabel(child.status, 'parent', institutionType)}
                         </span>
                         <span className="px-3 py-1 rounded-full text-xs font-bold bg-white/20 text-white">
                           Attendance: {child.attendance === 'present' ? 'Present Today' : child.attendance === 'absent' ? 'Absent Today' : child.attendance === 'late' ? 'Late Today' : 'Pending Check-in'}
@@ -138,7 +141,7 @@ export default function ParentStudentsPage() {
                         className="px-4 py-2 bg-white text-primary font-bold rounded-xl text-xs shadow-md hover:bg-white/90 active:scale-95 transition-all flex items-center gap-1.5"
                       >
                         <span className="material-symbols-outlined text-[16px]">directions_walk</span>
-                        {isLoading ? 'Starting...' : 'Start Trip to School'}
+                        {isLoading ? 'Starting...' : w.startTrip}
                       </button>
                     )}
 

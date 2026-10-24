@@ -111,7 +111,7 @@ export default function SafeReachLandingPage() {
                 <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
               </Link>
               <Link href="/school-registration" className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-6 py-4 text-center font-black text-white backdrop-blur transition hover:bg-white/20">
-                Register School
+                Register School / College
                 <span className="material-symbols-outlined text-[20px]">domain_add</span>
               </Link>
             </div>

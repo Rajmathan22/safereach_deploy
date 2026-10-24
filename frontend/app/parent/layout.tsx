@@ -4,7 +4,7 @@ import { usePathname } from '@/src/next-navigation';
 import Link from '@/src/next-link';
 import { useState } from 'react';
 import ParentChildSelector from '@/components/ParentChildSelector';
-import ParentSidebar from '@/components/ParentSidebar';
+import ParentSidebar, { type ActiveItem } from '@/components/ParentSidebar';
 import RoleBootstrapLoader from '@/components/RoleBootstrapLoader';
 
 function getParentSidebar(p: string): ActiveItem {

@@ -14,6 +14,8 @@ export type SchoolSettings = {
   phone?: string;
   email?: string;
   status: string;
+  /** 'school' | 'college'; absent on legacy rows → treated as 'school'. */
+  institution_type?: string;
   school_open_time: string;
   school_close_time: string;
 };
@@ -29,6 +31,7 @@ const emptySettings: SchoolSettings = {
   phone: '',
   email: '',
   status: 'active',
+  institution_type: 'school',
   school_open_time: '08:00:00',
   school_close_time: '16:30:00',
 };

@@ -7,11 +7,13 @@ import {
   travelStatusLabel,
   useStudentTravelState,
 } from '@/lib/studentTravel';
+import { institutionWording } from '@/lib/institutionType';
 
 type TabFilter = 'all' | 'to_school' | 'reached_school' | 'going_home' | 'reached_home';
 
 export default function TeacherAttendancePage() {
-  const { classStudents, counts, actions } = useStudentTravelState();
+  const { classStudents, counts, actions, institutionType } = useStudentTravelState();
+  const w = institutionWording(institutionType);
   const [activeTab, setActiveTab] = useState<TabFilter>('all');
   const [search, setSearch] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export default function TeacherAttendancePage() {
       student.section,
       student.parentName,
       student.parentPhone,
-      travelStatusLabel(student.status, 'teacher'),
+      travelStatusLabel(student.status, 'teacher', institutionType),
     ].some(v => v.toLowerCase().includes(q));
   });
 
@@ -49,7 +51,7 @@ export default function TeacherAttendancePage() {
     setActionLoadingId(studentId);
     try {
       await actions.markReachedSchool(studentId);
-      showNotice(`🏫 ${studentName} marked as Reached School.`);
+      showNotice(`🏫 ${studentName} marked as ${w.reached}.`);
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'Action failed');
     } finally {
@@ -62,7 +64,7 @@ export default function TeacherAttendancePage() {
     setActionLoadingId(studentId);
     try {
       await actions.markOutOfSchool([studentId]);
-      showNotice(`🚌 ${studentName} marked as Out of School.`);
+      showNotice(`🚌 ${studentName} marked as ${w.outOf}.`);
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'Action failed');
     } finally {
@@ -76,13 +78,13 @@ export default function TeacherAttendancePage() {
       .filter(s => s.status === 'to_school' || s.status === 'at_home')
       .map(s => s.id);
     if (pendingArrival.length === 0) {
-      showNotice('All students are already marked as reached school.');
+      showNotice('All students are already marked as reached.');
       return;
     }
     setBulkLoading(true);
     try {
       await actions.markAllReachedSchool(pendingArrival);
-      showNotice(`✅ Marked ${pendingArrival.length} student(s) as Reached School.`);
+      showNotice(`✅ Marked ${pendingArrival.length} student(s) as ${w.reached}.`);
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'Bulk action failed');
     } finally {
@@ -95,13 +97,13 @@ export default function TeacherAttendancePage() {
       .filter(s => s.status === 'reached_school' || s.status === 'present')
       .map(s => s.id);
     if (atSchool.length === 0) {
-      showNotice('No students currently in school to mark out.');
+      showNotice(`No students currently in ${w.nounLower} to mark out.`);
       return;
     }
     setBulkLoading(true);
     try {
       await actions.markAllOutOfSchool(atSchool);
-      showNotice(`🚌 Marked ${atSchool.length} student(s) as Out of School.`);
+      showNotice(`🚌 Marked ${atSchool.length} student(s) as ${w.outOf}.`);
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'Bulk action failed');
     } finally {
@@ -127,7 +129,7 @@ export default function TeacherAttendancePage() {
         <div>
           <h1 className="text-headline-lg font-headline-lg text-primary">Student Travel & Presence Tracker</h1>
           <p className="text-label-md text-on-surface-variant">
-            Live 4-Stage tracking: Departed Home ➡️ Reached School ➡️ Out of School ➡️ Reached Home
+            Live 4-Stage tracking: {w.departedFromHome} ➡️ {w.reached} ➡️ {w.outOf} ➡️ {w.reachedHome}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +149,7 @@ export default function TeacherAttendancePage() {
             className="flex items-center gap-1.5 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[18px]">logout</span>
-            Mark All Out of School
+            Mark All Out of {w.noun}
           </button>
         </div>
       </div>
@@ -170,7 +172,7 @@ export default function TeacherAttendancePage() {
             <span className="text-headline-md font-headline-md text-amber-800">{counts.toSchool}</span>
           </div>
           <p className="font-bold text-on-surface text-body-sm">1. Departed Home</p>
-          <p className="text-label-sm text-on-surface-variant">On travel to school</p>
+          <p className="text-label-sm text-on-surface-variant">On travel to {w.nounLower}</p>
         </button>
 
         <button
@@ -188,8 +190,8 @@ export default function TeacherAttendancePage() {
             </span>
             <span className="text-headline-md font-headline-md text-emerald-800">{counts.present}</span>
           </div>
-          <p className="font-bold text-on-surface text-body-sm">2. Reached School</p>
-          <p className="text-label-sm text-on-surface-variant">At school campus</p>
+          <p className="font-bold text-on-surface text-body-sm">2. {w.reached}</p>
+          <p className="text-label-sm text-on-surface-variant">At {w.nounLower} campus</p>
         </button>
 
         <button
@@ -207,7 +209,7 @@ export default function TeacherAttendancePage() {
             </span>
             <span className="text-headline-md font-headline-md text-sky-800">{counts.goingHome}</span>
           </div>
-          <p className="font-bold text-on-surface text-body-sm">3. Out of School</p>
+          <p className="font-bold text-on-surface text-body-sm">3. {w.outOf}</p>
           <p className="text-label-sm text-on-surface-variant">On travel home</p>
         </button>
 
@@ -248,8 +250,8 @@ export default function TeacherAttendancePage() {
           {[
             { key: 'all', label: 'All Students', count: classStudents.length },
             { key: 'to_school', label: 'On Travel', count: counts.toSchool },
-            { key: 'reached_school', label: 'In School', count: counts.present },
-            { key: 'going_home', label: 'Out of School', count: counts.goingHome },
+            { key: 'reached_school', label: `In ${w.noun}`, count: counts.present },
+            { key: 'going_home', label: w.outOf, count: counts.goingHome },
             { key: 'reached_home', label: 'Safe at Home', count: counts.reachedHome },
           ].map(tab => (
             <button
@@ -279,8 +281,7 @@ export default function TeacherAttendancePage() {
                 <th className="px-5 py-3.5">Current Stage</th>
                 <th className="px-5 py-3.5 text-center">Stage 2: Arrival</th>
                 <th className="px-5 py-3.5 text-center">Stage 3: Departure</th>
-                <th className="px-5 py-3.5 text-right">Stage 4: Home Status</th>
-              </tr>
+                <th className="px-5 py-3.5 text-right">Stage 4: Home Status</th>              </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20">
               {filteredStudents.map(student => {
@@ -309,7 +310,7 @@ export default function TeacherAttendancePage() {
                     <td className="px-5 py-4">
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-label-sm font-bold border ${travelStatusClass(student.status)}`}>
                         <span className="material-symbols-outlined text-[16px]">{travelStatusIcon(student.status)}</span>
-                        {travelStatusLabel(student.status, 'teacher')}
+                        {travelStatusLabel(student.status, 'teacher', institutionType)}
                       </span>
                       {student.updatedAt && (
                         <p className="text-[11px] text-on-surface-variant mt-1 pl-1">{student.updatedAt}</p>
@@ -321,7 +322,7 @@ export default function TeacherAttendancePage() {
                       {isAtSchool ? (
                         <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-label-sm border border-emerald-200">
                           <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                          In School
+                          In {w.noun}
                         </span>
                       ) : (
                         <button
@@ -344,7 +345,7 @@ export default function TeacherAttendancePage() {
                       {isOut ? (
                         <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-700 font-bold text-label-sm border border-sky-200">
                           <span className="material-symbols-outlined text-[16px]">directions_bus</span>
-                          Out of School
+                          {w.outOf}
                         </span>
                       ) : isHome ? (
                         <span className="text-label-sm text-on-surface-variant/60 font-medium">Completed</span>

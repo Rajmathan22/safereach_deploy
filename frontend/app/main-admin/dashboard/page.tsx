@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from '@/src/next-link';
 import MainAdminShell from '@/components/MainAdminShell';
 import {
   INDUSTRY_ACCESS_EVENT,
@@ -16,8 +17,11 @@ import { apiBaseUrl } from '@/lib/runtimeConfig';
 
 type RequestStatus = 'Pending' | 'Accepted' | 'Rejected';
 
+type InstitutionType = 'school' | 'college';
+
 type SchoolRequest = {
   id: string;
+  institutionType?: InstitutionType; // absent on legacy records → treated as 'school'
   schoolName: string;
   board: string;
   city: string;
@@ -179,8 +183,9 @@ function readRequests() {
   if (typeof window === 'undefined') return seedRequests;
   try {
     const stored = JSON.parse(window.localStorage.getItem(REQUEST_KEY) ?? '[]') as SchoolRequest[];
-    const storedIds = new Set(stored.map(item => item.id));
-    return [...stored, ...seedRequests.filter(item => !storedIds.has(item.id))];
+    const normalized = stored.map(item => ({ ...item, institutionType: item.institutionType ?? 'school' as const }));
+    const storedIds = new Set(normalized.map(item => item.id));
+    return [...normalized, ...seedRequests.filter(item => !storedIds.has(item.id))];
   } catch {
     return seedRequests;
   }
@@ -239,6 +244,8 @@ export default function MainAdminDashboardPage() {
         body: JSON.stringify({
           decision: status === 'Accepted' ? 'approved' : 'rejected',
           reason: status === 'Accepted' ? 'Approved by Super Admin' : 'Declined by Super Admin',
+          institutionType: request.institutionType ?? 'school',
+          actorUserId: null,
         }),
       }).catch(() => undefined);
     } catch {
@@ -246,7 +253,8 @@ export default function MainAdminDashboardPage() {
     }
 
     if (status === 'Accepted') {
-      setSmsLog(`SMS to ${request.phone}: SafeReach school environment approved. Login email: ${request.email}. Password: ${request.password}. URL: /login/admin`);
+      const kindLabel = (request.institutionType ?? 'school') === 'college' ? 'college' : 'school';
+      setSmsLog(`SMS to ${request.phone}: SafeReach ${kindLabel} environment approved. Login email: ${request.email}. Password: ${request.password}. URL: /login/admin`);
       const newSchool: School = {
         id: `SCH-${request.id.slice(-3)}`,
         name: request.schoolName,
@@ -261,7 +269,8 @@ export default function MainAdminDashboardPage() {
       setSelectedClassName(newSchool.classes[0].className);
       setSelectedSectionName(newSchool.classes[0].sections[0].name);
     } else {
-      setSmsLog(`SMS to ${request.phone}: SafeReach school environment request ${request.id} was rejected. Please contact SafeReach support with corrected details.`);
+      const kindLabel = (request.institutionType ?? 'school') === 'college' ? 'college' : 'school';
+      setSmsLog(`SMS to ${request.phone}: SafeReach ${kindLabel} environment request ${request.id} was rejected. Please contact SafeReach support with corrected details.`);
     }
   }
 
@@ -312,7 +321,7 @@ export default function MainAdminDashboardPage() {
       return next;
     });
     const schoolName = updatedRecord?.schoolName ?? schools.find(school => school.id === schoolId)?.name ?? schoolId;
-    saveIndustryMenuAccess({ schoolId, schoolName, menuKey, enabled });
+saveIndustryMenuAccess({ schoolId, schoolName, menuKey, enabled });
     setSmsLog(`Menu access updated: ${schoolName} ${menuKey} is now ${enabled ? 'enabled' : 'disabled'} for industry users.`);
   }
 
@@ -338,25 +347,54 @@ export default function MainAdminDashboardPage() {
           ))}
         </section>
 
+        {/* Quick Report & Data Center Action Banner */}
+        <section className="bg-gradient-to-r from-primary/10 via-surface-container to-secondary/10 border border-primary/20 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center shrink-0 shadow-sm">
+              <span className="material-symbols-outlined text-[26px]">monitoring</span>
+            </div>
+            <div>
+              <h2 className="font-headline-sm font-bold text-primary">Platform Reports & Data Hub</h2>
+              <p className="text-body-md text-on-surface-variant">
+                Export school-wise directories, student master lists, class rosters, attendance logs, and audit trails in CSV, JSON, or PDF.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              href="/main-admin/reports"
+              className="inline-flex items-center gap-2 px-5 py-3 bg-primary text-on-primary rounded-xl font-bold text-label-md hover:opacity-95 shadow-sm transition-transform active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">open_in_new</span>
+              Open Reports Center
+            </Link>
+          </div>
+        </section>
+
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-gutter">
           <div className="xl:col-span-2 bg-white rounded-xl border border-outline-variant/50 shadow-sm overflow-hidden">
             <div className="p-stack-md border-b border-outline-variant/40 flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
-                <h2 className="font-headline-md text-headline-md text-primary">School Environment Requests</h2>
-                <p className="text-label-md text-on-surface-variant">Accept or reject school-admin registration requests and preview the SMS sent to the requester.</p>
+                <h2 className="font-headline-md text-headline-md text-primary">School &amp; College Environment Requests</h2>
+                <p className="text-label-md text-on-surface-variant">Accept or reject school and college admin registration requests and preview the SMS sent to the requester.</p>
               </div>
               <span className="status-chip bg-secondary/10 text-secondary">{requests.filter(request => request.status === 'Pending').length} pending</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left">
-                <thead className="bg-surface-container-low text-label-md text-on-surface-variant">
-                  <tr>{['Request', 'School', 'School Admin', 'Contact', 'Status', 'Action'].map(head => <th key={head} className="px-5 py-4 font-bold">{head}</th>)}</tr>
+                <thead className="bg-surface-container-low text-label-md text-on-surface-variant">                    <tr>{['Request', 'Institution', 'Admin', 'Contact', 'Status', 'Action'].map(head => <th key={head} className="px-5 py-4 font-bold">{head}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/40">
                   {requests.map(request => (
                     <tr key={request.id} className="hover:bg-surface-container-low">
                       <td className="px-5 py-4 font-bold text-primary">{request.id}<p className="text-xs font-normal text-on-surface-variant">{request.requestedAt}</p></td>
-                      <td className="px-5 py-4"><p className="font-bold">{request.schoolName}</p><p className="text-xs text-on-surface-variant">{request.board} - {request.city}</p></td>
+                      <td className="px-5 py-4">
+                        <p className="font-bold">{request.schoolName}</p>
+                        <p className="text-xs text-on-surface-variant">{request.board} - {request.city}</p>
+                        <span className={`status-chip mt-1 inline-block ${(request.institutionType ?? 'school') === 'college' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {(request.institutionType ?? 'school') === 'college' ? '🎓 College' : '🏫 School'}
+                        </span>
+                      </td>
                       <td className="px-5 py-4">{request.adminName}</td>
                       <td className="px-5 py-4"><p>{request.email}</p><p className="text-xs text-on-surface-variant">{request.phone}</p></td>
                       <td className="px-5 py-4"><span className={`status-chip ${request.status === 'Accepted' ? 'bg-green-100 text-green-700' : request.status === 'Rejected' ? 'bg-error-container text-error' : 'bg-blue-100 text-blue-700'}`}>{request.status}</span></td>

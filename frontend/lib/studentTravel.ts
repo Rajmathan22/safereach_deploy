@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type BackendStudent, useBackendBootstrap } from '@/lib/backendData';
-import { safereachRealtime } from '@/lib/realtimeApi';
+import { type BackendSchool, type BackendStudent, useBackendBootstrap } from '@/lib/backendData';
+import { safereachRealtime } from './realtimeApi';
 import { apiBaseUrl } from './runtimeConfig';
 import { getCurrentTeacherAssignment } from './teacherAssignment';
+import { institutionWording, normalizeInstitutionType, type InstitutionType } from './institutionType';
 
 export type StudentTravelStatus =
   | 'at_home'
@@ -41,6 +42,8 @@ export type Db3RealtimeEvent = {
 
 export type StudentTravelRecord = {
   id: string;
+  /** Owning institution; used to adapt school/college wording per record. */
+  schoolId?: string;
   name: string;
   roll: string;
   className: string;
@@ -66,6 +69,13 @@ const TRAVEL_EVENT = 'safereach-travel-state-updated';
 
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 let backendBaseRecords: StudentTravelRecord[] = [];
+let backendSchoolsList: BackendSchool[] = [];
+
+/** Resolve school vs college wording for a record's institution. */
+function institutionTypeForSchool(schoolId?: string, schools: BackendSchool[] = backendSchoolsList): InstitutionType {
+  const match = (schoolId && schools.find(item => item.id === schoolId)) || schools[0];
+  return normalizeInstitutionType(match?.institution_type);
+}
 
 export function getTravelStage(status: StudentTravelStatus): number {
   switch (status) {
@@ -201,17 +211,26 @@ function safeStatus(status: string): StudentTravelStatus {
 }
 
 function safeAttendance(status: string): AttendanceMark {
-  const allowed: AttendanceMark[] = ['pending', 'present', 'absent', 'late'];
-  return allowed.includes(status as AttendanceMark) ? status as AttendanceMark : 'pending';
+  const statusMap: Record<StudentTravelStatus, AttendanceMark> = {
+    at_home: 'absent',
+    to_school: 'present',
+    reached_school: 'reached_school',
+    present: 'present',
+    absent: 'absent',
+    going_home: 'going_home',
+    reached_home: 'reached_home',
+  };
+  return statusMap[status as StudentTravelStatus] || 'pending';
 }
 
-function locationForStatus(status: StudentTravelStatus) {
+function locationForStatus(status: StudentTravelStatus, type: InstitutionType = 'school') {
+  const w = institutionWording(type);
   const labels: Record<StudentTravelStatus, string> = {
     at_home: 'Home',
-    to_school: 'Tracking to school',
-    reached_school: 'Reached school campus',
-    present: 'SafeReach at school',
-    absent: 'Not reached school',
+    to_school: w.trackingTo,
+    reached_school: w.reachedLocation,
+    present: w.atLocation,
+    absent: w.notReached,
     going_home: 'Tracking to home',
     reached_home: 'SafeReach at home',
   };
@@ -222,8 +241,12 @@ function initials(name: string) {
   return name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'SR';
 }
 
-function backendStudentToTravelRecord(student: BackendStudent): StudentTravelRecord {
+function backendStudentToTravelRecord(student: BackendStudent, schools: BackendSchool[] = backendSchoolsList): StudentTravelRecord {
   const status = safeStatus(student.travel_status);
+  const schoolId = student.school_id || undefined;
+  const institutionType = normalizeInstitutionType(
+    (schools.find(item => item.id === student.school_id) || schools[0])?.institution_type
+  );
   const isThompson = (student.guardian_name || '').toLowerCase().includes('thompson')
     || (student.full_name || '').toLowerCase().includes('thompson')
     || student.id.includes('thompson')
@@ -231,6 +254,7 @@ function backendStudentToTravelRecord(student: BackendStudent): StudentTravelRec
     || (student.student_code || '').includes('SAFE-4A-02');
   return {
     id: student.id,
+    schoolId,
     name: student.full_name,
     roll: student.roll_no,
     className: student.class_name,
@@ -239,7 +263,7 @@ function backendStudentToTravelRecord(student: BackendStudent): StudentTravelRec
     parentPhone: student.parent_phone || '+910000000000',
     teacherName: 'Sarah Jenkins',
     avatar: initials(student.full_name),
-    location: locationForStatus(status),
+    location: locationForStatus(status, institutionType),
     isParentChild: isThompson,
     status,
     attendance: safeAttendance(student.attendance_status),
@@ -301,26 +325,30 @@ function updateOne(studentId: string, patch: Partial<StudentTravelRecord>) {
   );
 }
 
-function smsStatusLabel(status: TeacherSmsStatus) {
+function smsStatusLabel(status: TeacherSmsStatus, type: InstitutionType = 'school') {
+  const w = institutionWording(type);
   const labels: Record<TeacherSmsStatus, string> = {
+    to_school: w.onTravelTo,
     present: 'Present',
     absent: 'Absent',
     late: 'Late',
-    reached_school: 'Reached School',
+    reached_school: w.reached,
     going_home: 'Go Out / Going Home',
     reached_home: 'Reached Home',
   };
   return labels[status];
 }
 
-function buildSmsMessage(student: StudentTravelRecord, status: TeacherSmsStatus) {
+function buildSmsMessage(student: StudentTravelRecord, status: TeacherSmsStatus, type: InstitutionType = 'school') {
+  const w = institutionWording(type);
   const base = `SafeReach: ${student.name} (${student.className}-${student.section})`;
   const messages: Record<TeacherSmsStatus, string> = {
-    present: `${base} is marked Present and reached school safely. - ${student.teacherName}`,
-    absent: `${base} is marked Absent today. Please send the absence reason to school. - ${student.teacherName}`,
-    late: `${base} reached school Late. Attendance has been updated. - ${student.teacherName}`,
-    reached_school: `${base} has Reached School. Attendance confirmation will follow. - ${student.teacherName}`,
-    going_home: `${base} has left school and is Going Home. Please confirm when reached home. - ${student.teacherName}`,
+    to_school: `${base} has departed and is on travel to ${w.nounLower}. - ${student.teacherName}`,
+    present: `${base} is marked Present and reached ${w.nounLower} safely. - ${student.teacherName}`,
+    absent: `${base} is marked Absent today. Please send the absence reason to ${w.nounLower}. - ${student.teacherName}`,
+    late: `${base} reached ${w.nounLower} Late. Attendance has been updated. - ${student.teacherName}`,
+    reached_school: `${base} has Reached ${w.noun}. Attendance confirmation will follow. - ${student.teacherName}`,
+    going_home: `${base} has left ${w.nounLower} and is Going Home. Please confirm when reached home. - ${student.teacherName}`,
     reached_home: `${base} is recorded as Reached Home. Thank you. - ${student.teacherName}`,
   };
   return messages[status];
@@ -331,7 +359,7 @@ function createSmsLog(student: StudentTravelRecord, status: TeacherSmsStatus): S
   return {
     id: `${student.id}-${status}-${Date.now()}`,
     status,
-    message: buildSmsMessage(student, status),
+    message: buildSmsMessage(student, status, institutionTypeForSchool(student.schoolId)),
     phone: student.parentPhone,
     sentAt,
     sentBy: student.teacherName,
@@ -426,7 +454,7 @@ function applyBackendTravelPayload(records: StudentTravelRecord[], payload: Back
       ...record,
       status,
       attendance: safeAttendance(payload.attendance_status || record.attendance),
-      location: locationForStatus(status),
+      location: locationForStatus(status, institutionTypeForSchool(record.schoolId)),
       // An absence prompt is created only by the final attendance submission,
       // not when a teacher merely stages the Absent status.
       absenceReasonRequested: record.absenceReasonRequested,
@@ -443,7 +471,7 @@ function applyLocalTravelPatch(records: StudentTravelRecord[], studentId: string
       ...record,
       ...patch,
       status,
-      location: patch.location ?? locationForStatus(status),
+      location: patch.location ?? locationForStatus(status, institutionTypeForSchool(record.schoolId)),
       updatedAt: patch.updatedAt ?? nowLabel(),
     };
   });
@@ -458,7 +486,7 @@ function applyLocalTravelPatchMany(records: StudentTravelRecord[], studentIds: s
       ...record,
       ...patch,
       status,
-      location: patch.location ?? locationForStatus(status),
+      location: patch.location ?? locationForStatus(status, institutionTypeForSchool(record.schoolId)),
       updatedAt: patch.updatedAt ?? nowLabel(),
     };
   });
@@ -469,21 +497,22 @@ function persistAndReturn(records: StudentTravelRecord[]) {
   return records;
 }
 
-export function travelStatusLabel(status: StudentTravelStatus, audience: 'parent' | 'teacher' = 'parent') {
+export function travelStatusLabel(status: StudentTravelStatus, audience: 'parent' | 'teacher' = 'parent', type: InstitutionType = 'school') {
+  const w = institutionWording(type);
   if (audience === 'parent') {
     if (status === 'at_home') return 'At Home';
     if (status === 'to_school') return 'Departed Home (On Travel)';
-    if (status === 'reached_school' || status === 'present') return 'Reached School Safely';
-    if (status === 'going_home') return 'Out of School (Going Home)';
+    if (status === 'reached_school' || status === 'present') return w.reachedSafely;
+    if (status === 'going_home') return `Out of ${w.noun} (Going Home)`;
     if (status === 'reached_home') return 'Safe at Home';
   }
   const labels: Record<StudentTravelStatus, string> = {
     at_home: 'At Home',
-    to_school: 'On Travel to School',
-    reached_school: 'Reached School',
-    present: 'Reached School',
+    to_school: w.onTravelTo,
+    reached_school: w.reached,
+    present: w.reached,
     absent: 'Not Arrived',
-    going_home: 'Out of School',
+    going_home: w.outOf,
     reached_home: 'Reached Home',
   };
   return labels[status] || 'At Home';
@@ -530,7 +559,8 @@ export function useStudentTravelState() {
   }, []);
 
   useEffect(() => {
-    backendBaseRecords = backend.students.map(backendStudentToTravelRecord);
+    backendSchoolsList = backend.schools ?? [];
+    backendBaseRecords = backend.students.map(student => backendStudentToTravelRecord(student, backendSchoolsList));
     const initialRecords = readTravelRecords(backendBaseRecords);
     recordsRef.current = initialRecords;
     setRecords(initialRecords);
@@ -583,7 +613,7 @@ export function useStudentTravelState() {
     async markDepartedHome(studentId: string) {
       commitRecords(current => applyLocalTravelPatch(current, studentId, {
         status: 'to_school',
-        attendance: 'to_school',
+        attendance: safeAttendance('to_school'),
         absenceReason: '',
         absenceReasonRequested: false,
         absenceSmsSentAt: '',
@@ -596,16 +626,17 @@ export function useStudentTravelState() {
       const existingRecord = recordsRef.current.find(item => item.id === studentId);
       commitRecords(current => applyBackendTravelPayload(current, payload).map(record =>
           record.id === studentId
-            ? { ...record, status: 'to_school', attendance: 'to_school' }
+            ? { ...record, status: 'to_school', attendance: safeAttendance('to_school') }
             : record
       ));
       if (existingRecord) {
+        const w = institutionWording(institutionTypeForSchool(existingRecord.schoolId));
         appendDb3RealtimeEvent(existingRecord, {
           table: 'parent_events',
           actor: 'parent',
           event: 'Departed from Home',
           status: 'to_school',
-          detail: `${existingRecord.name} has departed from home and is on travel to school.`,
+          detail: `${existingRecord.name} has departed from home and is on travel to ${w.nounLower}.`,
         });
       }
     },
@@ -630,12 +661,13 @@ export function useStudentTravelState() {
       ));
       const existingRecord = recordsRef.current.find(item => item.id === studentId);
       if (existingRecord) {
+        const w = institutionWording(institutionTypeForSchool(existingRecord.schoolId));
         appendDb3RealtimeEvent(existingRecord, {
           table: 'teacher_events',
           actor: 'teacher',
-          event: 'Reached School',
+          event: w.reached,
           status: 'reached_school',
-          detail: `${existingRecord.name} has safely arrived at school.`,
+          detail: `${existingRecord.name} has safely arrived at ${w.nounLower}.`,
         });
       }
     },
@@ -652,7 +684,7 @@ export function useStudentTravelState() {
     async markAbsent(studentId: string) {
       commitRecords(current => applyLocalTravelPatch(current, studentId, {
         status: 'at_home',
-        attendance: 'at_home',
+        attendance: safeAttendance('at_home'),
       }));
     },
 
@@ -671,10 +703,11 @@ export function useStudentTravelState() {
       studentIds.forEach(id => {
         const student = recordsRef.current.find(s => s.id === id);
         if (student) {
+          const w = institutionWording(institutionTypeForSchool(student.schoolId));
           appendDb3RealtimeEvent(student, {
             table: 'teacher_events',
             actor: 'teacher',
-            event: 'Out of School',
+            event: w.outOf,
             status: 'going_home',
             detail: `${student.name} is dismissed and on travel home.`,
           });
@@ -731,7 +764,7 @@ export function useStudentTravelState() {
 
     async submitAbsenceReason(studentId: string, reason: string) {
       const cleanReason = reason.trim();
-      const payload = await realtimeRequest<AbsenceReasonPayload, AbsenceReasonPayload>(
+      const payload = await realtimeRequest<AbsenceReasonPayload>(
         'absence.reason.submit',
         { studentId, reason: cleanReason, actorUserId: null },
         '/messages/absence-reason',
@@ -753,7 +786,7 @@ export function useStudentTravelState() {
       );
     },
     async notifyAbsentParents(studentIds: string[]) {
-      const payload = await realtimeRequest<AbsenceNotificationPayload, AbsenceNotificationPayload>(
+      const payload = await realtimeRequest<AbsenceNotificationPayload>(
         'attendance.absence.notify',
         { studentIds, actorUserId: null },
         '/attendance/absence-notifications',
@@ -781,10 +814,19 @@ export function useStudentTravelState() {
 
   const parentChildren = records.filter(record => record.isParentChild);
 
+  // School or college wording context for whichever records this view shows.
+  // Read straight from the current bootstrap payload so the first render after
+  // data arrives already uses the right wording.
+  const institutionType = institutionTypeForSchool(
+    classStudents[0]?.schoolId ?? parentChildren[0]?.schoolId ?? records[0]?.schoolId,
+    backend.schools,
+  );
+
   return {
     records,
     parentChildren,
     classStudents,
+    institutionType,
     counts: {
       toSchool: classStudents.filter(record => record.status === 'to_school').length,
       present: classStudents.filter(record => record.status === 'present' || record.status === 'reached_school').length,

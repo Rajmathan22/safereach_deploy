@@ -6,6 +6,7 @@ import { useBackendBootstrap, type BackendStudent } from '@/lib/backendData';
 import { downloadTextFile } from '@/lib/downloadFile';
 import { apiBaseUrl } from '@/lib/runtimeConfig';
 import { travelStatusClass, travelStatusIcon, travelStatusLabel } from '@/lib/studentTravel';
+import { normalizeInstitutionType } from '@/lib/institutionType';
 import LoadingRing from '@/components/LoadingRing';
 
 export default function AdminStudentsPage() {
@@ -14,6 +15,12 @@ export default function AdminStudentsPage() {
   const [selectedSection, setSelectedSection] = useState('');
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // A college campus is still a row in `schools`; label its travel statuses
+  // with the campus wording instead of "Reached School".
+  const institutionTypeFor = (schoolId?: string) => normalizeInstitutionType(
+    (data.schools.find(school => school.id === schoolId) ?? data.schools[0])?.institution_type,
+  );
 
   // Modals state
   const [promoteStudent, setPromoteStudent] = useState<BackendStudent | null>(null);
@@ -385,7 +392,7 @@ export default function AdminStudentsPage() {
                   <td className="p-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${travelStatusClass(student.travel_status as any)}`}>
                       <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(student.travel_status as any)}</span>
-                      {travelStatusLabel(student.travel_status as any)}
+                      {travelStatusLabel(student.travel_status as any, 'parent', institutionTypeFor(student.school_id))}
                     </span>
                   </td>
                   <td className="p-4">

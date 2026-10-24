@@ -4,7 +4,7 @@ import Link from '@/src/next-link';
 import LogoutConfirmButton from './LogoutConfirmButton';
 import LogoMark from './LogoMark';
 
-type ActiveItem = 'dashboard' | 'students' | 'attendance' | 'messages' | 'reports' | 'timetable';
+export type ActiveItem = 'dashboard' | 'students' | 'attendance' | 'messages' | 'reports' | 'timetable';
 
 interface ParentSidebarProps {
   activeItem: ActiveItem;

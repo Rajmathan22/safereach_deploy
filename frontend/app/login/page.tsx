@@ -88,7 +88,7 @@ export default function LoginRoleSelectorPage() {
       <div className="mt-8 flex flex-col items-center gap-3">
         <Link href="/sub-main" className="text-primary font-bold hover:underline">School Administrator / Sub Admin login</Link>
         <Link href="/main-admin/login" className="text-primary font-bold hover:underline">Main Admin login</Link>
-        <Link href="/school-registration" className="text-primary font-bold hover:underline">Register a school admin account</Link>
+        <Link href="/school-registration" className="text-primary font-bold hover:underline">Register a school or college admin account</Link>
         <p className="text-label-sm text-on-surface-variant flex items-center gap-1.5">
           <span className="material-symbols-outlined text-[14px] text-secondary">verified_user</span>
           SafeReach demo environment

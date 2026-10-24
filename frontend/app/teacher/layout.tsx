@@ -5,6 +5,7 @@ import Link from '@/src/next-link';
 import { useState } from 'react';
 import TeacherSidebar from '@/components/TeacherSidebar';
 import RoleBootstrapLoader from '@/components/RoleBootstrapLoader';
+import { institutionWording, useInstitutionType } from '@/lib/institutionType';
 
 type ActiveItem = 'dashboard' | 'students' | 'attendance' | 'messages' | 'reports' | 'results' | 'timetable';
 
@@ -41,6 +42,12 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const activeItem: ActiveItem = getTeacherSidebar(pathname);
   const { title, sub } = titleMap[pathname] ?? { title: 'Teacher Portal', sub: '' };
+  // The attendance tracker is the one header that names the campus stage.
+  const institutionType = useInstitutionType();
+  const w = institutionWording(institutionType);
+  const headerSub = pathname === '/teacher/attendance'
+    ? `4-Stage live presence: Departed Home ➔ ${w.reached} ➔ ${w.outOf} ➔ Reached Home`
+    : sub;
 
   return (
     <div className="bg-background text-on-surface min-h-screen overflow-x-hidden pt-16">
@@ -60,7 +67,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
             </button>
             <div>
               <h2 className="font-headline-md text-headline-md text-primary leading-tight">{title}</h2>
-              <p className="text-label-sm text-on-surface-variant hidden md:block">{sub}</p>
+              <p className="text-label-sm text-on-surface-variant hidden md:block">{headerSub}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">

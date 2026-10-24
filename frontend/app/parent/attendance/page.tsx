@@ -8,6 +8,7 @@ import {
   travelStatusClass,
 } from '@/lib/studentTravel';
 import { useBackendBootstrap } from '@/lib/backendData';
+import { institutionWording } from '@/lib/institutionType';
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -17,6 +18,10 @@ const monthNames = [
 export default function ParentAttendancePage() {
   const { children, activeChild, activeChildId, selectChild, actions } = useParentActiveChild();
   const { data: bootstrap } = useBackendBootstrap();
+  const activeSchoolId = bootstrap.students.find(s => s.id === activeChild?.id)?.school_id ?? activeChild?.schoolId;
+  const activeSchool = bootstrap.schools.find(school => school.id === activeSchoolId) ?? bootstrap.schools[0];
+  const institutionType = activeSchool?.institution_type === 'college' ? 'college' : 'school';
+  const w = institutionWording(institutionType);
 
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -42,7 +47,7 @@ export default function ParentAttendancePage() {
     setActionLoading(true);
     try {
       await actions.markDepartedHome(child.id);
-      showToast(`🚗 Departed from Home! ${child.name} is now On Travel to School.`);
+      showToast(`🚗 Departed from Home! ${child.name} is now ${w.trackingTo}.`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to mark departure');
     } finally {
@@ -147,7 +152,7 @@ export default function ParentAttendancePage() {
               <span className={`text-[11px] px-2 py-0.5 rounded-full ${
                 c.id === activeChildId ? 'bg-white/20 text-white' : travelStatusClass(c.status)
               }`}>
-                {travelStatusLabel(c.status)}
+                {travelStatusLabel(c.status, 'parent', institutionType)}
               </span>
             </button>
           ))}
@@ -167,7 +172,7 @@ export default function ParentAttendancePage() {
                   <h2 className="text-headline-md font-headline-md text-primary">{child.name}</h2>
                   <span className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 shadow-sm ${travelStatusClass(child.status)}`}>
                     <span className="material-symbols-outlined text-[16px]">{travelStatusIcon(child.status)}</span>
-                    {travelStatusLabel(child.status)}
+                    {travelStatusLabel(child.status, 'parent', institutionType)}
                   </span>
                 </div>
                 <p className="text-label-md text-on-surface-variant mt-1">
@@ -194,7 +199,7 @@ export default function ParentAttendancePage() {
                 <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 px-5 py-3 rounded-2xl text-amber-900 shadow-sm">
                   <span className="inline-block w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
                   <div>
-                    <p className="text-sm font-bold">On Travel to School</p>
+                    <p className="text-sm font-bold">{w.onTravelTo}</p>
                     <p className="text-xs text-amber-700">Awaiting Teacher Arrival Confirmation</p>
                   </div>
                 </div>
@@ -204,7 +209,7 @@ export default function ParentAttendancePage() {
                 <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-3 rounded-2xl text-emerald-900 shadow-sm">
                   <span className="material-symbols-outlined text-emerald-600 text-[26px]">verified</span>
                   <div>
-                    <p className="font-bold text-sm">Reached School Safely</p>
+                    <p className="font-bold text-sm">{w.reachedSafely}</p>
                     <p className="text-xs text-emerald-700">In class • Verified by Teacher</p>
                   </div>
                 </div>
@@ -235,23 +240,23 @@ export default function ParentAttendancePage() {
                   step: 'Stage 1',
                   title: 'Departed Home',
                   actor: 'Parent Action',
-                  desc: 'Marked on departure to school',
+                  desc: `Marked on departure to ${w.nounLower}`,
                   icon: 'directions_walk',
                   active: child.status !== 'at_home',
                   current: child.status === 'to_school',
                 },
                 {
                   step: 'Stage 2',
-                  title: 'Reached School',
+                  title: w.reached,
                   actor: 'Teacher Action',
-                  desc: 'Verified arrival at school',
+                  desc: `Verified arrival at ${w.nounLower}`,
                   icon: 'school',
                   active: ['reached_school', 'present', 'going_home', 'reached_home'].includes(child.status),
                   current: child.status === 'reached_school' || child.status === 'present',
                 },
                 {
                   step: 'Stage 3',
-                  title: 'Out of School',
+                  title: w.outOf,
                   actor: 'Teacher Action',
                   desc: 'Marked dismissal going home',
                   icon: 'directions_bus',
@@ -322,7 +327,7 @@ export default function ParentAttendancePage() {
               <span className="material-symbols-outlined text-primary">timeline</span>
               Daily Travel & Presence History
             </h3>
-            <p className="text-label-sm text-on-surface-variant">Complete record of departure, school arrival, dismissal & home arrival</p>
+            <p className="text-label-sm text-on-surface-variant">Complete record of departure, {w.nounLower} arrival, dismissal & home arrival</p>
           </div>
 
           <div className="flex gap-2">
@@ -353,8 +358,8 @@ export default function ParentAttendancePage() {
               <tr>
                 <th className="p-4">Date</th>
                 <th className="p-4">1. Departed Home</th>
-                <th className="p-4">2. Reached School</th>
-                <th className="p-4">3. Out of School</th>
+                <th className="p-4">2. {w.reached}</th>
+                <th className="p-4">3. {w.outOf}</th>
                 <th className="p-4">4. Reached Home</th>
                 <th className="p-4 text-right">Status</th>
               </tr>
@@ -418,7 +423,7 @@ export default function ParentAttendancePage() {
                   </td>
                   <td className="p-4 text-right">
                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${travelStatusClass(child?.status || 'at_home')}`}>
-                      {travelStatusLabel(child?.status || 'at_home')}
+                      {travelStatusLabel(child?.status || 'at_home', 'parent', institutionType)}
                     </span>
                   </td>
                 </tr>

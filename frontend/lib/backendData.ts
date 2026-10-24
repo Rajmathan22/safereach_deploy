@@ -6,15 +6,43 @@ import { safereachRealtime } from './realtimeApi';
 
 const API_BASE = apiBaseUrl;
 
+export type BackendSchool = {
+  id: string;
+  name: string;
+  code: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  phone?: string;
+  email?: string;
+  status: string;
+  /** 'school' | 'college'; absent on legacy rows → treated as 'school'. */
+  institution_type?: string;
+  school_open_time?: string;
+  school_close_time?: string;
+  created_at?: string;
+};
+
 export type BackendStudent = {
   id: string;
+  school_id?: string;
+  school_name?: string;
+  school_code?: string;
+  class_id?: string;
+  section_id?: string;
   student_code: string;
   full_name: string;
   roll_no: string;
+  gender?: string;
+  date_of_birth?: string;
+  emergency_notes?: string;
   class_name: string;
   section_name: string;
   guardian_name: string;
   parent_phone: string;
+  parent_email?: string;
+  parent_id?: string;
+  parent_user_id?: string;
   sms_enabled: boolean;
   travel_status: string;
   attendance_status: string;
@@ -25,6 +53,8 @@ export type BackendStudent = {
 
 export type BackendTeacher = {
   id: string;
+  school_id?: string;
+  school_name?: string;
   user_id?: string;
   full_name: string;
   email: string;
@@ -38,6 +68,8 @@ export type BackendTeacher = {
 
 export type BackendClass = {
   id: string;
+  school_id?: string;
+  school_name?: string;
   class_name: string;
   sort_order: number;
   sections: Array<{ id: string; name: string; room: string }>;
@@ -45,6 +77,8 @@ export type BackendClass = {
 
 export type BackendReport = {
   id: string;
+  school_id?: string;
+  school_name?: string;
   report_title: string;
   safety_score: number;
   alert_count: number;
@@ -52,10 +86,13 @@ export type BackendReport = {
   report_text: string;
   class_name?: string | null;
   section_name?: string | null;
+  created_at?: string;
 };
 
 export type BackendIncident = {
   id: string;
+  school_id?: string;
+  school_name?: string;
   incident_code: string;
   incident_type: string;
   level: string;
@@ -66,16 +103,24 @@ export type BackendIncident = {
   class_name: string;
   section_name: string;
   detail: string;
+  incident_time?: string;
 };
 
 export type BackendAttendance = {
   id: string;
+  school_id?: string;
+  school_name?: string;
   student_id: string;
+  student_code?: string;
   student_name: string;
+  class_name?: string;
+  section_name?: string;
   attendance_date: string;
   session: string;
   status: string;
+  reason?: string;
   locked: boolean;
+  created_at?: string;
 };
 
 export type BackendApiTest = {
@@ -87,6 +132,20 @@ export type BackendApiTest = {
   created_at: string;
 };
 
+export type BackendAuditLog = {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  payload?: any;
+  actor_user_id?: string;
+  actor_name: string;
+  actor_role: string;
+  school_id?: string;
+  school_name: string;
+  created_at: string;
+};
+
 export type BackendAcademicResults = {
   exams: Array<{ id: string; school_id: string; class_id: string; section_id: string; name: string; active: boolean; class_name: string; section_name: string }>;
   components: Array<{ id: string; exam_id: string; subject: string; label: string; maximum_marks: string | number; sort_order: number }>;
@@ -94,7 +153,7 @@ export type BackendAcademicResults = {
 };
 
 export type BackendBootstrap = {
-  schools: Array<{ id: string; name: string; code: string; status: string }>;
+  schools: BackendSchool[];
   classes: BackendClass[];
   teachers: BackendTeacher[];
   students: BackendStudent[];
@@ -109,6 +168,7 @@ export type BackendBootstrap = {
     days: Array<{ id: string; label: string; periods: string[] }>;
   };
   academicResults: BackendAcademicResults;
+  auditLogs?: BackendAuditLog[];
 };
 
 const emptyBootstrap: BackendBootstrap = {
@@ -122,6 +182,7 @@ const emptyBootstrap: BackendBootstrap = {
   apiTests: [],
   timetable: { className: '', section: '', breaks: [], days: [] },
   academicResults: { exams: [], components: [], marks: [] },
+  auditLogs: [],
 };
 
 type TravelUpdate = {
@@ -192,10 +253,10 @@ export function useBackendBootstrap() {
 
   useEffect(() => {
     const updateFromPayload = (payload: unknown) => {
-      const candidate = payload as TravelUpdate | { records?: TravelUpdate[] };
-      const updates = 'records' in candidate && Array.isArray(candidate.records)
+      const candidate = payload as Partial<TravelUpdate> & { records?: TravelUpdate[] };
+      const updates: TravelUpdate[] = Array.isArray(candidate.records)
         ? candidate.records
-        : typeof candidate.student_id === 'string' ? [candidate] : [];
+        : typeof candidate.student_id === 'string' ? [candidate as TravelUpdate] : [];
       if (updates.length > 0) setData(current => applyTravelUpdates(current, updates));
     };
     const updateFromTravelSnapshot = (event: Event) => {

@@ -22,7 +22,7 @@ export const defaultTermsState: TermsState = {
       id: 'app-purpose',
       title: 'SafeReach App Details',
       body:
-        'SafeReach is a school safety, attendance, student travel status, incident reporting, parent communication, and operational monitoring application. The school registration request creates a SafeReach school environment for approved school administrators, teachers, parents, and authorized users.',
+        'SafeReach is a school safety, attendance, student travel status, incident reporting, parent communication, and operational monitoring application. The school or college registration request creates a SafeReach institution environment for approved school administrators, college administrators, teachers, parents, and authorized users.',
     },
     {
       id: 'data-collected',
@@ -64,7 +64,7 @@ export const defaultTermsState: TermsState = {
       id: 'communications',
       title: 'SMS, Email, And App Communications',
       body:
-        'Users may receive app messages, email alerts, and SMS notifications for attendance, travel status, absence, emergency, approval, support, and school safety events. Standard mobile carrier charges may apply. SMS fallback is included for parents or guardians who may not use a smartphone.',
+        'Users may receive app messages, email alerts, and SMS notifications for attendance, travel status, absence, emergency, approval, support, and school or campus safety events. Standard mobile carrier charges may apply. SMS fallback is included for parents or guardians who may not use a smartphone.',
     },
     {
       id: 'user-responsibility',

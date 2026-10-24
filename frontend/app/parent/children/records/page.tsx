@@ -2,6 +2,7 @@
 
 import Link from '@/src/next-link';
 import { travelStatusClass, travelStatusIcon, travelStatusLabel, useStudentTravelState } from '@/lib/studentTravel';
+import { useInstitutionType } from '@/lib/institutionType';
 
 const childProfiles: Record<string, {
   dateOfBirth: string;
@@ -50,6 +51,7 @@ function DetailCard({ label, value }: { label: string; value: string }) {
 export default function ParentChildRecordsPage() {
   const { parentChildren } = useStudentTravelState();
   const selectedChild = parentChildren[0] ?? null;
+  const institutionType = useInstitutionType(selectedChild?.schoolId);
 
   const profile = selectedChild ? childProfiles[selectedChild.id] ?? {
     dateOfBirth: 'Not updated',
@@ -87,7 +89,7 @@ export default function ParentChildRecordsPage() {
               </div>
               <span className={`${travelStatusClass(selectedChild.status)} w-fit px-3 py-1 rounded-full text-label-sm font-bold flex items-center gap-1`}>
                 <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(selectedChild.status)}</span>
-                {travelStatusLabel(selectedChild.status, 'parent')}
+                {travelStatusLabel(selectedChild.status, 'parent', institutionType)}
               </span>
             </div>
           </section>

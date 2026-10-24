@@ -137,11 +137,15 @@ Clone your repository to the EC2 instance:
 cd /home/ubuntu
 
 # Clone repository
-git clone https://github.com/BrillarisG/SafeReach.git
+git clone https://github.com/Rajmathan22/safereach_deploy.git
 
 # Enter project directory
-cd SafeReach
+cd safereach_deploy
 ```
+
+> Private repository? Use a deploy key or a personal access token instead of the plain HTTPS URL:
+> `git clone https://<username>:<token>@github.com/Rajmathan22/safereach_deploy.git`
+> (do not commit that URL anywhere).
 
 ---
 
@@ -300,8 +304,19 @@ docker compose restart
 
 ### Rebuilding after Code Changes
 ```bash
+cd /home/ubuntu/safereach_deploy
 git pull origin main
 docker compose up -d --build
+```
+
+The `frontend` image bakes the compiled SPA in at build time, so a frontend change needs the
+`--build` flag — a plain `docker compose restart` keeps serving the old bundle.
+
+Schema, seed and migration files only execute on a **fresh** database volume. On an existing
+volume, apply column changes explicitly after pulling:
+
+```bash
+docker compose exec backend php database/migrate.php
 ```
 
 ### Complete Reset (Wipe Database Volume and Rebuild from Scratch)

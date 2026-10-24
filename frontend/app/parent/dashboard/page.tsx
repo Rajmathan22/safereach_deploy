@@ -9,9 +9,12 @@ import {
   travelStatusIcon,
   travelStatusLabel,
 } from '@/lib/studentTravel';
+import { institutionWording, useInstitutionType } from '@/lib/institutionType';
 
 export default function ParentDashboardPage() {
   const { children, activeChild, activeChildId, selectChild, actions } = useParentActiveChild();
+  const institutionType = useInstitutionType(activeChild?.schoolId);
+  const w = institutionWording(institutionType);
   const [actionLoading, setActionLoading] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -37,7 +40,7 @@ export default function ParentDashboardPage() {
     setActionLoading(true);
     try {
       await actions.readyToSend(activeChild.id);
-      showNotice(`🎉 Trip started! ${activeChild.name} is now Tracking to School.`);
+      showNotice(`🎉 Trip started! ${activeChild.name} is now ${w.trackingTo}.`);
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'Failed to start trip');
     } finally {
@@ -123,7 +126,7 @@ export default function ParentDashboardPage() {
                   </div>
                   <span className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 ${travelStatusClass(c.status)}`}>
                     <span className="material-symbols-outlined text-[14px]">{travelStatusIcon(c.status)}</span>
-                    {travelStatusLabel(c.status)}
+                    {travelStatusLabel(c.status, 'parent', institutionType)}
                   </span>
                 </button>
               );
@@ -145,7 +148,7 @@ export default function ParentDashboardPage() {
                   <h1 className="text-headline-lg font-headline-lg text-primary">{child.name}</h1>
                   <span className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 shadow-sm ${travelStatusClass(child.status)}`}>
                     <span className="material-symbols-outlined text-[16px]">{travelStatusIcon(child.status)}</span>
-                    {travelStatusLabel(child.status)}
+                    {travelStatusLabel(child.status, 'parent', institutionType)}
                   </span>
                 </div>
                 <p className="text-label-md text-on-surface-variant mt-1">
@@ -172,7 +175,7 @@ export default function ParentDashboardPage() {
                 <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
                   <span className="inline-block w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
                   <div>
-                    <p className="text-xs font-bold text-amber-900">On Travel to School</p>
+                    <p className="text-xs font-bold text-amber-900">{w.onTravelTo}</p>
                     <p className="text-label-sm text-amber-700">Awaiting Teacher Arrival Confirmation</p>
                   </div>
                 </div>
@@ -182,7 +185,7 @@ export default function ParentDashboardPage() {
                 <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-3 rounded-2xl text-emerald-900 shadow-sm">
                   <span className="material-symbols-outlined text-emerald-600 text-[26px]">verified</span>
                   <div>
-                    <p className="font-bold text-body-md">Reached School Safely</p>
+                    <p className="font-bold text-body-md">{w.reachedSafely}</p>
                     <p className="text-label-sm text-emerald-700">In class • Verified by Teacher</p>
                   </div>
                 </div>
@@ -219,7 +222,7 @@ export default function ParentDashboardPage() {
                 },
                 {
                   step: 'Stage 2',
-                  title: 'Reached School',
+                  title: w.reached,
                   desc: 'Teacher verified in class',
                   icon: 'school',
                   active: ['reached_school', 'present', 'going_home', 'reached_home'].includes(child.status),
@@ -227,7 +230,7 @@ export default function ParentDashboardPage() {
                 },
                 {
                   step: 'Stage 3',
-                  title: 'Out of School',
+                  title: w.outOf,
                   desc: 'Teacher marked departure',
                   icon: 'directions_bus',
                   active: ['going_home', 'reached_home'].includes(child.status),

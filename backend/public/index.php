@@ -193,6 +193,15 @@ $router->put('/api/v1/industry-menu-access/{schoolId}/{menuKey}', function ($par
 $router->get('/api/v1/super-admin/requests', function () {
     return SafeReachService::listSchoolRequests();
 });
+// Public: submit a school OR college registration request (pending approval)
+$router->post('/api/v1/super-admin/requests', function ($params, $body) {
+    return SafeReachService::createSchoolRequest($body ?? []);
+});
+$router->get('/api/v1/super-admin/audit-logs', function ($params, $body, $query) {
+    $schoolId = $query['schoolId'] ?? null;
+    $limit = (int)($query['limit'] ?? 200);
+    return AuditService::listAuditLogs($schoolId, $limit);
+});
 $router->post('/api/v1/super-admin/requests/{id}/review', function ($params, $body) {
     return SafeReachService::reviewSchoolRequest(
         $params['id'],

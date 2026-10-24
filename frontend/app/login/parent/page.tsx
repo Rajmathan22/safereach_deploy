@@ -90,7 +90,7 @@ export default function ParentLoginPage() {
         <div className="relative z-10 text-center max-w-md">
           <span className="material-symbols-outlined text-[84px] text-white/30 mb-6 block">family_restroom</span>
           <h2 className="font-headline-lg text-headline-lg font-bold mb-4">Parent access is child-specific.</h2>
-          <p className="text-white/80 text-body-md leading-relaxed">Work: view child travel, attendance, messages, timetable, reports, and school safety updates. Access: linked child records only, with no access to other students or admin screens. Policy: use information for child safety and keep the account private.</p>
+          <p className="text-white/80 text-body-md leading-relaxed">Work: view child travel, attendance, messages, timetable, reports, and campus safety updates for your school or college. Access: linked child records only, with no access to other students or admin screens. Policy: use information for child safety and keep the account private.</p>
         </div>
       </section>
     </main>

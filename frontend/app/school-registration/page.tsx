@@ -3,9 +3,13 @@
 import Link from '@/src/next-link';
 import { useEffect, useState } from 'react';
 import { readTermsState, termsSummary, type TermsState } from '@/lib/terms';
+import { apiBaseUrl } from '@/lib/runtimeConfig';
+
+type InstitutionType = 'school' | 'college';
 
 type SchoolRequest = {
   id: string;
+  institutionType: InstitutionType;
   schoolName: string;
   board: string;
   city: string;
@@ -25,11 +29,24 @@ const REQUEST_KEY = 'safereach_school_requests';
 function readRequests(): SchoolRequest[] {
   if (typeof window === 'undefined') return [];
   try {
-    return JSON.parse(window.localStorage.getItem(REQUEST_KEY) ?? '[]') as SchoolRequest[];
+    const stored = JSON.parse(window.localStorage.getItem(REQUEST_KEY) ?? '[]') as SchoolRequest[];
+    // Normalise legacy records saved before institution type existed.
+    return stored.map(request => ({ ...request, institutionType: request.institutionType ?? 'school' }));
   } catch {
     return [];
   }
 }
+
+const BOARD_OPTIONS: Record<InstitutionType, { label: string; options: string[] }> = {
+  school: {
+    label: 'Board / Curriculum',
+    options: ['CBSE', 'ICSE', 'State Board', 'International'],
+  },
+  college: {
+    label: 'University / Affiliation',
+    options: ['Affiliated University', 'Autonomous Institution', 'Deemed-to-be University', 'Open University'],
+  },
+};
 
 export default function SchoolRegistrationPage() {
   const [submitted, setSubmitted] = useState<SchoolRequest | null>(null);
@@ -38,6 +55,10 @@ export default function SchoolRegistrationPage() {
   const [termsViewed, setTermsViewed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [agreementError, setAgreementError] = useState('');
+  const [institutionType, setInstitutionType] = useState<InstitutionType>('school');
+
+  const isCollege = institutionType === 'college';
+  const affiliationField = BOARD_OPTIONS[institutionType];
 
   useEffect(() => {
     setTerms(readTermsState());
@@ -54,6 +75,7 @@ export default function SchoolRegistrationPage() {
     const acceptedAt = new Date().toLocaleString();
     const request: SchoolRequest = {
       id: `REQ-${Date.now().toString().slice(-6)}`,
+      institutionType,
       schoolName: String(form.get('schoolName') ?? ''),
       board: String(form.get('board') ?? ''),
       city: String(form.get('city') ?? ''),
@@ -73,6 +95,27 @@ export default function SchoolRegistrationPage() {
     setTermsViewed(false);
     setAgreementError('');
     event.currentTarget.reset();
+
+    // Also persist to the PHP backend (MySQL) when reachable. The localStorage
+    // record above keeps the main-admin demo panel working offline; failures
+    // here must never block the visible confirmation.
+    fetch(`${apiBaseUrl}/super-admin/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: request.id,
+        institutionType: request.institutionType,
+        schoolName: request.schoolName,
+        board: request.board,
+        city: request.city,
+        address: request.address,
+        adminName: request.adminName,
+        email: request.email,
+        phone: request.phone,
+        password: request.password,
+        termsVersion: request.termsVersion,
+      }),
+    }).catch(() => undefined);
   }
 
   return (
@@ -84,8 +127,8 @@ export default function SchoolRegistrationPage() {
               <span className="material-symbols-outlined text-[18px]">arrow_back</span>
               Back to login
             </Link>
-            <h1 className="font-headline-lg text-headline-lg text-primary">School Environment Registration</h1>
-            <p className="text-body-md text-on-surface-variant">School admins can request a SafeReach school workspace using this separate frontend URL.</p>
+            <h1 className="font-headline-lg text-headline-lg text-primary">Institution Environment Registration</h1>
+            <p className="text-body-md text-on-surface-variant">School and college admins can request a SafeReach institution workspace using this separate frontend URL.</p>
           </div>
           <span className="status-chip bg-primary/10 text-primary">Frontend request demo</span>
         </div>
@@ -96,32 +139,51 @@ export default function SchoolRegistrationPage() {
               <span className="material-symbols-outlined text-green-700">task_alt</span>
               <div>
                 <p className="font-bold text-green-700">Request submitted to main admin</p>
-                <p className="text-label-md text-on-surface-variant">Request ID {submitted.id} is now visible in the main-admin approvals panel. The request includes agreement to {submitted.termsVersion}.</p>
+                <p className="text-label-md text-on-surface-variant">Request ID {submitted.id} ({submitted.institutionType === 'college' ? 'College' : 'School'}) is now visible in the main-admin approvals panel. The request includes agreement to {submitted.termsVersion}.</p>
               </div>
             </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-outline-variant/50 shadow-sm overflow-hidden">
-          <div className="p-stack-md border-b border-outline-variant/40">
-            <h2 className="font-headline-md text-headline-md text-on-surface">School Details</h2>
-            <p className="text-label-md text-on-surface-variant">These details create the pending school environment request for app-level approval.</p>
-          </div>
-          <div className="p-stack-md grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="space-y-1.5">
-              <span className="text-label-md text-on-surface-variant font-medium">School Name</span>
-              <input name="schoolName" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="Green Valley Public School" />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-label-md text-on-surface-variant font-medium">Board / Curriculum</span>
-              <select name="board" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none">
-                <option value="">Select board</option>
-                <option>CBSE</option>
-                <option>ICSE</option>
-                <option>State Board</option>
-                <option>International</option>
-              </select>
-            </label>
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-outline-variant/50 shadow-sm overflow-hidden">            <div className="p-stack-md border-b border-outline-variant/40">
+              <h2 className="font-headline-md text-headline-md text-on-surface">{isCollege ? 'College Details' : 'School Details'}</h2>
+              <p className="text-label-md text-on-surface-variant">These details create the pending {institutionType} environment request for app-level approval.</p>
+            </div>
+
+            <div className="p-stack-md pb-0">
+              <span className="text-label-md text-on-surface-variant font-medium">Institution Type</span>
+              <div className="mt-2 inline-flex rounded-full bg-surface-container p-1">
+                <button
+                  type="button"
+                  onClick={() => setInstitutionType('school')}
+                  aria-pressed={!isCollege}
+                  className={`min-w-32 px-5 py-2.5 rounded-full text-label-md font-bold transition-all ${!isCollege ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                >
+                  🏫 School
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstitutionType('college')}
+                  aria-pressed={isCollege}
+                  className={`min-w-32 px-5 py-2.5 rounded-full text-label-md font-bold transition-all ${isCollege ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                >
+                  🎓 College
+                </button>
+              </div>
+            </div>
+
+            <div className="p-stack-md grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-1.5">
+                <span className="text-label-md text-on-surface-variant font-medium">{isCollege ? 'College Name' : 'School Name'}</span>
+                <input name="schoolName" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder={isCollege ? 'City College of Engineering' : 'Green Valley Public School'} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-label-md text-on-surface-variant font-medium">{affiliationField.label}</span>
+                <select name="board" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+                  <option value="">Select {isCollege ? 'affiliation' : 'board'}</option>
+                  {affiliationField.options.map(option => <option key={option}>{option}</option>)}
+                </select>
+              </label>
             <label className="space-y-1.5">
               <span className="text-label-md text-on-surface-variant font-medium">City</span>
               <input name="city" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="Chennai" />
@@ -130,12 +192,10 @@ export default function SchoolRegistrationPage() {
               <span className="text-label-md text-on-surface-variant font-medium">School Address</span>
               <input name="address" required className="w-full px-4 py-3 bg-surface-container border border-outline-variant rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="Campus address" />
             </label>
-          </div>
-
-          <div className="p-stack-md border-t border-outline-variant/40">
-            <h2 className="font-headline-md text-headline-md text-on-surface">School Admin Details</h2>
-            <p className="text-label-md text-on-surface-variant">The password entered here is the same demo password shown in the acceptance SMS preview.</p>
-          </div>
+          </div>            <div className="p-stack-md border-t border-outline-variant/40">
+              <h2 className="font-headline-md text-headline-md text-on-surface">Administrator Details</h2>
+              <p className="text-label-md text-on-surface-variant">The password entered here is the same demo password shown in the acceptance SMS preview.</p>
+            </div>
           <div className="p-stack-md pt-0 grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="space-y-1.5">
               <span className="text-label-md text-on-surface-variant font-medium">Admin Full Name</span>
@@ -207,11 +267,10 @@ export default function SchoolRegistrationPage() {
             </div>
           </div>
 
-          <div className="p-stack-md border-t border-outline-variant/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container-low">
-            <p className="text-label-md text-on-surface-variant">No backend is created here. Requests are stored locally for frontend demonstration.</p>
-            <button type="submit" disabled={!termsAccepted} className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-on-primary rounded-lg font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
-              <span className="material-symbols-outlined text-[20px]">send</span>
-              Request School Environment
+          <div className="p-stack-md border-t border-outline-variant/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container-low">              <p className="text-label-md text-on-surface-variant">Requests are stored locally and submitted to the backend when available.</p>
+              <button type="submit" disabled={!termsAccepted} className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-on-primary rounded-lg font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
+                <span className="material-symbols-outlined text-[20px]">send</span>
+                Request {isCollege ? 'College' : 'School'} Environment
             </button>
           </div>
         </form>

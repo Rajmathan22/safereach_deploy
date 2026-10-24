@@ -20,6 +20,28 @@ try {
     $pdo->exec($sql);
     echo "✅ Schema applied successfully.\n";
 
+    // Guarded column additions for existing databases. schema.sql only creates
+    // missing tables (CREATE TABLE IF NOT EXISTS), so tables that were created
+    // before a column existed would never receive it without this step.
+    // Additive-only: each check makes rerunning migrate.php idempotent.
+    $additions = [
+        ['schools', 'institution_type', "ALTER TABLE schools ADD COLUMN institution_type VARCHAR(20) NOT NULL DEFAULT 'school' AFTER status"],
+        ['school_registration_requests', 'institution_type', "ALTER TABLE school_registration_requests ADD COLUMN institution_type VARCHAR(20) NOT NULL DEFAULT 'school' AFTER password_hash"],
+    ];
+    foreach ($additions as [$table, $column, $ddl]) {
+        $check = $pdo->prepare(
+            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+        );
+        $check->execute([$table, $column]);
+        if ($check->fetchColumn()) {
+            echo "✔ {$table}.{$column} already present.\n";
+            continue;
+        }
+        echo "Adding {$table}.{$column}...\n";
+        $pdo->exec($ddl);
+        echo "✅ {$table}.{$column} added.\n";
+    };
+
     echo "Running seeder...\n";
     require_once __DIR__ . '/seed.php';
 

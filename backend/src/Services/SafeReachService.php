@@ -10,10 +10,13 @@ class SafeReachService {
 
     public static function login(string $email, string $password): array {
         $pdo = Database::getConnection();
+        // LEFT JOIN so platform-level users (main admins, no school_id) still
+        // log in; institution_type is additive context for the frontend.
         $stmt = $pdo->prepare("
-            SELECT u.*, r.role_key
+            SELECT u.*, r.role_key, sc.institution_type
             FROM users u
             JOIN roles r ON r.id = u.role_id
+            LEFT JOIN schools sc ON sc.id = u.school_id
             WHERE LOWER(u.email) = LOWER(?) AND u.status = 'active'
         ");
         $stmt->execute([trim($email)]);
@@ -24,6 +27,7 @@ class SafeReachService {
         }
 
         unset($user['password_hash']);
+        $user['institution_type'] = self::normalizeInstitutionType($user['institution_type'] ?? null);
         return [
             'user'         => $user,
             'accessToken'  => Security::createToken($user, 'access'),
@@ -35,27 +39,32 @@ class SafeReachService {
         $pdo = Database::getConnection();
 
         // 1. Schools (Auto-seed if fresh database)
-        $stmtSchools = $pdo->query("SELECT id, name, code, status, school_open_time, school_close_time FROM schools ORDER BY created_at");
+        // institution_type ('school' | 'college') is exposed so the frontend can
+        // adapt its wording; it is purely additive and does not change any
+        // existing field or query behaviour.
+        $schoolsSelect = "SELECT id, name, code, address, city, state, phone, email, status, institution_type, school_open_time, school_close_time, created_at FROM schools ORDER BY created_at";
+        $stmtSchools = $pdo->query($schoolsSelect);
         $schools = $stmtSchools->fetchAll();
         if (empty($schools)) {
             require_once dirname(__DIR__, 2) . '/database/seed.php';
             if (function_exists('runSeed')) {
                 runSeed();
             }
-            $stmtSchools = $pdo->query("SELECT id, name, code, status, school_open_time, school_close_time FROM schools ORDER BY created_at");
+            $stmtSchools = $pdo->query($schoolsSelect);
             $schools = $stmtSchools->fetchAll();
         }
 
-        // 2. Classes with nested sections
+        // 2. Classes with nested sections & school info
         $stmtClasses = $pdo->query("
-            SELECT c.id, c.name AS class_name, c.sort_order,
+            SELECT c.id, c.school_id, COALESCE(sc.name, 'Default School') AS school_name, c.name AS class_name, c.sort_order,
                    COALESCE((
                        SELECT JSON_ARRAYAGG(JSON_OBJECT('id', s.id, 'name', s.name, 'room', s.room))
                        FROM sections s
                        WHERE s.class_id = c.id
                    ), JSON_ARRAY()) AS sections_json
             FROM classes c
-            ORDER BY c.sort_order, c.name
+            LEFT JOIN schools sc ON sc.id = c.school_id
+            ORDER BY sc.name, c.sort_order, c.name
         ");
         $classesRaw = $stmtClasses->fetchAll();
         $classes = array_map(function($c) {
@@ -64,9 +73,9 @@ class SafeReachService {
             return $c;
         }, $classesRaw);
 
-        // 3. Teachers with assignments
+        // 3. Teachers with assignments & school info
         $stmtTeachers = $pdo->query("
-            SELECT t.id, t.user_id, u.full_name, u.email, u.phone, t.employee_code, t.subject, t.qualification, t.status,
+            SELECT t.id, t.school_id, COALESCE(sc.name, 'Default School') AS school_name, t.user_id, u.full_name, u.email, u.phone, t.employee_code, t.subject, t.qualification, t.status,
                    COALESCE((
                        SELECT JSON_ARRAYAGG(JSON_OBJECT(
                            'className', cl.name,
@@ -80,8 +89,9 @@ class SafeReachService {
                        WHERE ta.teacher_id = t.id AND ta.active = TRUE
                    ), JSON_ARRAY()) AS assignments_json
             FROM teachers t
+            LEFT JOIN schools sc ON sc.id = t.school_id
             LEFT JOIN users u ON u.id = t.user_id
-            ORDER BY u.full_name
+            ORDER BY sc.name, u.full_name
         ");
         $teachersRaw = $stmtTeachers->fetchAll();
         $teachers = array_map(function($t) {
@@ -93,8 +103,8 @@ class SafeReachService {
         // 4. Students
         $today = date('Y-m-d');
         $stmtStudents = $pdo->query("
-            SELECT s.id, s.student_code, s.full_name, s.roll_no, s.gender, s.date_of_birth, s.emergency_notes,
-                   c.name AS class_name, sec.name AS section_name,
+            SELECT s.id, s.school_id, sc.name AS school_name, sc.code AS school_code, s.student_code, s.full_name, s.roll_no, s.gender, s.date_of_birth, s.emergency_notes,
+                   c.id AS class_id, c.name AS class_name, sec.id AS section_id, sec.name AS section_name,
                    p.id AS parent_id, p.user_id AS parent_user_id, p.guardian_name, p.phone AS parent_phone,
                    u.email AS parent_email,
                    (p.sms_enabled = 1) AS sms_enabled,
@@ -121,7 +131,7 @@ class SafeReachService {
                 WHERE m.message_kind = 'absence_request' AND DATE(m.created_at) = '{$today}'
                 GROUP BY m.student_id
             ) absence_notif ON absence_notif.student_id = s.id
-            ORDER BY c.sort_order, sec.name, CAST(s.roll_no AS UNSIGNED), s.roll_no
+            ORDER BY sc.name, c.sort_order, sec.name, CAST(s.roll_no AS UNSIGNED), s.roll_no
         ");
         $studentsRaw = $stmtStudents->fetchAll();
         $students = array_map(function($s) {
@@ -131,9 +141,12 @@ class SafeReachService {
 
         // 5. Attendance
         $stmtAtt = $pdo->query("
-            SELECT ar.id, ar.student_id, s.full_name AS student_name, ar.attendance_date, ar.session, ar.status, ar.reason, (ar.locked = 1) AS locked, ar.created_at
+            SELECT ar.id, ar.school_id, COALESCE(sc.name, 'Default School') AS school_name, ar.student_id, s.full_name AS student_name, s.student_code, c.name AS class_name, sec.name AS section_name, ar.attendance_date, ar.session, ar.status, ar.reason, (ar.locked = 1) AS locked, ar.created_at
             FROM attendance_records ar
             JOIN students s ON s.id = ar.student_id
+            LEFT JOIN schools sc ON sc.id = ar.school_id
+            LEFT JOIN classes c ON c.id = ar.class_id
+            LEFT JOIN sections sec ON sec.id = ar.section_id
             ORDER BY ar.attendance_date DESC, CAST(s.roll_no AS UNSIGNED)
         ");
         $attendance = array_map(function($a) {
@@ -143,9 +156,10 @@ class SafeReachService {
 
         // 6. Reports
         $stmtReports = $pdo->query("
-            SELECT sr.id, sr.report_title, sr.safety_score, sr.alert_count, sr.attendance_percent, sr.report_text,
+            SELECT sr.id, sr.school_id, COALESCE(sc.name, 'Default School') AS school_name, sr.report_title, sr.safety_score, sr.alert_count, sr.attendance_percent, sr.report_text,
                    c.name AS class_name, sec.name AS section_name, sr.created_at
             FROM safety_reports sr
+            LEFT JOIN schools sc ON sc.id = sr.school_id
             LEFT JOIN classes c ON c.id = sr.class_id
             LEFT JOIN sections sec ON sec.id = sr.section_id
             ORDER BY sr.created_at DESC
@@ -154,9 +168,10 @@ class SafeReachService {
 
         // 7. Incidents
         $stmtIncidents = $pdo->query("
-            SELECT il.id, il.incident_code, il.incident_type, il.level, il.priority, il.status, il.handler_name, il.incident_time, il.detail,
+            SELECT il.id, il.school_id, COALESCE(sc.name, 'Default School') AS school_name, il.incident_code, il.incident_type, il.level, il.priority, il.status, il.handler_name, il.incident_time, il.detail,
                    s.full_name AS student_name, c.name AS class_name, sec.name AS section_name
             FROM incident_logs il
+            LEFT JOIN schools sc ON sc.id = il.school_id
             LEFT JOIN students s ON s.id = il.student_id
             LEFT JOIN classes c ON c.id = s.class_id
             LEFT JOIN sections sec ON sec.id = s.section_id
@@ -174,6 +189,9 @@ class SafeReachService {
         // 10. Academic Results
         $academicResults = AcademicResultService::listResults();
 
+        // 11. Audit Logs for Super Admin Monitoring & Reports
+        $auditLogs = AuditService::listAuditLogs($schoolId, 100);
+
         return [
             'schools'         => $schools,
             'classes'         => $classes,
@@ -185,6 +203,7 @@ class SafeReachService {
             'apiTests'        => $apiTests,
             'timetable'       => $timetable,
             'academicResults' => $academicResults,
+            'auditLogs'       => $auditLogs,
             'role'            => $role,
             'schoolId'        => $schoolId,
         ];
@@ -194,7 +213,7 @@ class SafeReachService {
         $pdo = Database::getConnection();
         $sId = self::resolveSchoolId($pdo, $schoolId);
 
-        $stmt = $pdo->prepare("SELECT id, name, code, address, city, state, country, phone, email, status, school_open_time, school_close_time, created_at, updated_at FROM schools WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT id, name, code, address, city, state, country, phone, email, status, institution_type, school_open_time, school_close_time, created_at, updated_at FROM schools WHERE id = ?");
         $stmt->execute([$sId]);
         $row = $stmt->fetch();
         if (!$row) {
@@ -694,8 +713,90 @@ class SafeReachService {
 
     public static function listSchoolRequests(): array {
         $pdo = Database::getConnection();
-        $stmt = $pdo->query("SELECT id, school_name, requester_name, requester_email, requester_phone, address, status, decision_reason, created_at FROM school_registration_requests ORDER BY created_at DESC");
+        $stmt = $pdo->query("SELECT id, school_name, requester_name, requester_email, requester_phone, address, institution_type, status, decision_reason, created_at FROM school_registration_requests ORDER BY created_at DESC");
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Normalize an institution type value to a supported one.
+     * Additive-only helper: anything unknown stays 'school', so legacy rows
+     * and callers without the new field behave exactly as before.
+     */
+    public static function normalizeInstitutionType(?string $type): string {
+        $type = strtolower(trim((string)$type));
+        return in_array($type, ['school', 'college'], true) ? $type : 'school';
+    }
+
+    /**
+     * Create a school OR college registration request (pending approval).
+     * Called by the public registration form. Stores institution_type so the
+     * main-admin approval panel can label it; defaults to 'school'.
+     */
+    public static function createSchoolRequest(array $payload): array {
+        $pdo = Database::getConnection();
+
+        $schoolName = trim($payload['schoolName'] ?? '');
+        $requesterName = trim($payload['adminName'] ?? $payload['requesterName'] ?? '');
+        $email = trim($payload['email'] ?? $payload['requesterEmail'] ?? '');
+        $password = (string)($payload['password'] ?? '');
+
+        if ($schoolName === '') {
+            throw new \InvalidArgumentException("Institution name is required");
+        }
+        if ($requesterName === '') {
+            throw new \InvalidArgumentException("Admin full name is required");
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new \InvalidArgumentException("A valid admin email is required");
+        }
+        if (strlen($password) < 8) {
+            throw new \InvalidArgumentException("Password must be at least 8 characters");
+        }
+
+        // Client-provided id (REQ-XXXXXX from the form) is honoured when valid,
+        // otherwise generate one; retry on the unlikely primary-key clash.
+        $requestId = trim($payload['id'] ?? '');
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            if ($requestId === '' || !preg_match('/^REQ-[A-Za-z0-9]{4,20}$/', $requestId)) {
+                $requestId = 'REQ-' . str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            }
+            $stmt = $pdo->prepare("SELECT 1 FROM school_registration_requests WHERE id = ?");
+            $stmt->execute([$requestId]);
+            if (!$stmt->fetchColumn()) {
+                break;
+            }
+            $requestId = '';
+        }
+
+        $institutionType = self::normalizeInstitutionType($payload['institutionType'] ?? null);
+
+        $pdo->prepare("
+            INSERT INTO school_registration_requests
+                (id, school_name, requester_name, requester_email, requester_phone, address, password_hash, institution_type, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
+        ")->execute([
+            $requestId,
+            $schoolName,
+            $requesterName,
+            $email,
+            trim($payload['phone'] ?? $payload['requesterPhone'] ?? ''),
+            trim($payload['address'] ?? ''),
+            Security::hashPassword($password),
+            $institutionType,
+        ]);
+
+        AuditService::writeAudit('school.request_submitted', 'school_registration_requests', $requestId, [
+            'schoolName'     => $schoolName,
+            'institutionType'=> $institutionType,
+        ], null, null);
+
+        return [
+            'ok'              => true,
+            'id'              => $requestId,
+            'institutionType' => $institutionType,
+            'status'          => 'pending',
+            'message'         => "Registration request submitted for approval.",
+        ];
     }
 
     public static function reviewSchoolRequest(string $requestId, string $decision, ?string $reason = null, ?string $actorUserId = null): array {
@@ -710,12 +811,13 @@ class SafeReachService {
         if ($decision === 'approved' || $decision === 'accepted') {
             $schoolId = self::uuid();
             $schoolCode = 'SAFE-' . strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $req['school_name']), 0, 8)) . '-' . rand(10, 99);
-            
-            // 1. Create School
+            $institutionType = self::normalizeInstitutionType($req['institution_type'] ?? null);
+
+            // 1. Create School (or College campus row)
             $pdo->prepare("
-                INSERT INTO schools (id, name, code, address, phone, email, status, school_open_time, school_close_time)
-                VALUES (?, ?, ?, ?, ?, ?, 'active', '08:00:00', '16:30:00')
-            ")->execute([$schoolId, $req['school_name'], $schoolCode, $req['address'] ?? 'Campus Address', $req['requester_phone'] ?? '+910000000000', $req['requester_email']]);
+                INSERT INTO schools (id, name, code, address, phone, email, status, institution_type, school_open_time, school_close_time)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, '08:00:00', '16:30:00')
+            ")->execute([$schoolId, $req['school_name'], $schoolCode, $req['address'] ?? 'Campus Address', $req['requester_phone'] ?? '+910000000000', $req['requester_email'], $institutionType]);
 
             // 2. Resolve Role
             $roleStmt = $pdo->query("SELECT id FROM roles WHERE role_key = 'school_admin' LIMIT 1");
@@ -732,7 +834,7 @@ class SafeReachService {
             $pdo->prepare("UPDATE school_registration_requests SET status = 'approved', decision_reason = ?, decided_by = ?, decided_at = NOW() WHERE id = ?")
                 ->execute([$reason ?: 'Approved by Super Admin', $actorUserId, $requestId]);
 
-            AuditService::writeAudit('school.request_approved', 'school_registration_requests', $requestId, ['schoolId' => $schoolId, 'schoolName' => $req['school_name']], $actorUserId, $schoolId);
+            AuditService::writeAudit('school.request_approved', 'school_registration_requests', $requestId, ['schoolId' => $schoolId, 'schoolName' => $req['school_name'], 'institutionType' => $institutionType], $actorUserId, $schoolId);
 
             return [
                 'ok'        => true,
@@ -768,8 +870,8 @@ class SafeReachService {
         $email = $payload['email'] ?? 'admin@' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $name)) . '.edu';
 
         $pdo->prepare("
-            INSERT INTO schools (id, name, code, address, city, state, country, phone, email, status, school_open_time, school_close_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            INSERT INTO schools (id, name, code, address, city, state, country, phone, email, status, institution_type, school_open_time, school_close_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
         ")->execute([
             $schoolId,
             $name,
@@ -780,6 +882,7 @@ class SafeReachService {
             $payload['country'] ?? 'India',
             $phone,
             $email,
+            self::normalizeInstitutionType($payload['institutionType'] ?? null),
             $payload['schoolOpenTime'] ?? '08:00:00',
             $payload['schoolCloseTime'] ?? '16:30:00',
         ]);

@@ -48,7 +48,7 @@ export default function MainAdminShell({ active, title, subtitle, children }: Ma
       <div className="mt-4 pt-4 border-t border-outline-variant/60 shrink-0 space-y-1 pb-4">
         <Link href="/school-registration" className="flex items-center gap-3 rounded-md px-3 py-2.5 text-primary hover:bg-surface-container-low font-label-md">
           <span className="material-symbols-outlined text-[20px]">domain_add</span>
-          School Registration URL
+          School / College Registration URL
         </Link>
         <LogoutConfirmButton className="w-full flex items-center gap-3 rounded-md px-3 py-2.5 text-error hover:bg-error-container font-label-md" />
         <button className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-error px-3 py-2.5 font-bold text-on-error transition-transform hover:opacity-90 active:scale-95">

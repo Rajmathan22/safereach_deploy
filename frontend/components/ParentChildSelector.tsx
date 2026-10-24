@@ -1,9 +1,11 @@
 'use client';
 
 import { useParentActiveChild, travelStatusClass, travelStatusIcon, travelStatusLabel } from '@/lib/studentTravel';
+import { useInstitutionType } from '@/lib/institutionType';
 
 export default function ParentChildSelector() {
   const { children, activeChild, activeChildId, selectChild } = useParentActiveChild();
+  const institutionType = useInstitutionType(activeChild?.schoolId);
 
   if (children.length <= 1 && !activeChild) {
     return null;
@@ -48,7 +50,7 @@ export default function ParentChildSelector() {
                   isSelected ? 'bg-emerald-400 text-emerald-950' : travelStatusClass(child.status)
                 }`}>
                   <span className="material-symbols-outlined text-[12px]">{travelStatusIcon(child.status)}</span>
-                  {travelStatusLabel(child.status)}
+                  {travelStatusLabel(child.status, 'parent', institutionType)}
                 </span>
               </button>
             );
